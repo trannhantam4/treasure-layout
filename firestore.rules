@@ -1,0 +1,67 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to get the role of the currently authenticated user.
+    function getUserRole() {
+      // If there's no authenticated user, they are a visitor.
+      if (request.auth == null) {
+        return 'visitor';
+      }
+      // Otherwise, read their role from the 'users' collection.
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Helper function to check if the user has one of the specified roles.
+    function isOneOfRoles(roles) {
+      return getUserRole() in roles;
+    }
+
+    // Rules for the 'users' collection
+    match /users/{userId} {
+      // READ: A user can read their own profile. Admins and managers can read all profiles.
+      allow read: if request.auth.uid == userId || isOneOfRoles(['admin', 'manager']);
+
+      // CREATE: A user can create their own profile document, but cannot assign a role.
+      allow create: if request.auth.uid == userId && !('role' in request.resource.data);
+
+      // UPDATE:
+      // 1. A user can update their own profile, but cannot change their own role.
+      // 2. An admin can update any field on any user profile.
+      // 3. A manager can update users, but cannot edit other admins/managers or promote anyone to admin/manager.
+      allow update: if (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+                    || isOneOfRoles(['admin'])
+                    || (
+                         isOneOfRoles(['manager']) &&
+                         resource.data.role != 'admin' && resource.data.role != 'manager' &&
+                         request.resource.data.role != 'admin' && request.resource.data.role != 'manager'
+                       );
+
+      // DELETE: Only admins can delete user accounts.
+      allow delete: if isOneOfRoles(['admin']);
+    }
+
+    // Rules for the 'event' collection
+    match /event/{eventId} {
+      // READ: Anyone, including unauthenticated users, can read event data.
+      allow read: if true;
+
+      // CREATE & DELETE: Only admins and managers can create or delete events.
+      allow create, delete: if isOneOfRoles(['admin', 'manager']);
+
+      // UPDATE: Admins/managers can update anything. Authenticated users can only register/unregister themselves.
+      allow update: if isOneOfRoles(['admin', 'manager'])
+                    || (
+                         request.auth != null &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registeredUsers']) &&
+                         (
+                           // Logic for registering (adding own UID to the array)
+                           request.resource.data.registeredUsers.toSet() == resource.data.registeredUsers.toSet().union([request.auth.uid].toSet()) ||
+                           // Logic for un-registering (removing own UID from the array)
+                           request.resource.data.registeredUsers.toSet() == resource.data.registeredUsers.toSet().difference([request.auth.uid].toSet())
+                         )
+                       );
+    }
+  }
+}

@@ -1,17 +1,33 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { collection, getDocs, query, limit, orderBy, where, startAfter } from 'firebase/firestore';
 import { db } from './firebase';
 import { saveEventToFirestore, uploadImageToImgBB } from './Event';
+import SearchInput from './SearchInput';
 import EventCard from './EventCard';
+import EventCardSkeleton from './EventCardSkeleton';
+import Modal from './Modal';
+import EventForm from './EventForm';
+import BackToTopButton from './BackToTopButton';
+import * as XLSX from 'xlsx';
+import { useTranslation } from 'react-i18next';
 
 function Events({ user }) {
   const [eventsList, setEventsList] = useState([]);
+  const { t } = useTranslation();
   const [showAddModal, setShowAddModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingKeyview, setIsUploadingKeyview] = useState(false);
   const [isUploadingLayout, setIsUploadingLayout] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const importFileRef = useRef(null);
+  const scrollViewRef = useRef(null);
+  const [loading, setLoading] = useState(true);
   const [lastDoc, setLastDoc] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
   const [formData, setFormData] = useState({
     eventName: '',
     eventHostest: '',
@@ -27,54 +43,75 @@ function Events({ user }) {
     layoutImages: []
   });
 
-  const userRole = user?.role?.toLowerCase();
-  const canEdit = userRole === 'admin' || userRole === 'manager' || user?.email === 'trannhantam4@gmail.com';
+  const canEdit = user?.role === 'admin' || user?.role === 'manager';
+
+  const clearDateFilters = () => {
+    setStartDateFilter('');
+    setEndDateFilter('');
+  };
 
   useEffect(() => {
     const fetchEvents = async () => {
-      // Instantly load from cache for a snappy UI
-      const cachedEvents = sessionStorage.getItem('events_cache');
-      if (cachedEvents) {
-        setEventsList(JSON.parse(cachedEvents));
-      }
-
-      // Always fetch to establish the 'lastDoc' cursor for pagination and sync fresh data
+      setLoading(true);
       try {
-        const today = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
-        const q = query(
+        let q = query(
           collection(db, 'event'),
-          orderBy('eventDateStart', 'desc'),
-          limit(10)
+          orderBy('eventDateStart', 'desc')
         );
+
+        if (startDateFilter) {
+          q = query(q, where('eventDateStart', '>=', startDateFilter));
+        }
+        if (endDateFilter) {
+          q = query(q, where('eventDateStart', '<=', endDateFilter));
+        }
+
+        q = query(q, limit(10));
+
         const querySnapshot = await getDocs(q);
         const fetchedEvents = querySnapshot.docs.map(doc => doc.data());
         
         if (querySnapshot.docs.length > 0) {
           setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
           setEventsList(fetchedEvents);
-          sessionStorage.setItem('events_cache', JSON.stringify(fetchedEvents));
-          if (querySnapshot.docs.length < 10) setHasMore(false);
+          if (!startDateFilter && !endDateFilter) {
+            sessionStorage.setItem('events_cache', JSON.stringify(fetchedEvents));
+          }
+          setHasMore(querySnapshot.docs.length === 10);
         } else {
+          setEventsList([]);
           setHasMore(false);
+          setLastDoc(null);
         }
       } catch (error) {
         console.error("Failed to fetch events from Firestore:", error);
+        setEventsList([]);
+      } finally {
+        setLoading(false);
       }
     };
     fetchEvents();
-  }, []);
+  }, [startDateFilter, endDateFilter]);
 
   const loadMoreEvents = async () => {
-    if (!lastDoc) return;
+    if (!lastDoc || loadingMore) return;
     
+    setLoadingMore(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const q = query(
+      let q = query(
         collection(db, 'event'),
-        orderBy('eventDateStart', 'desc'),
-        startAfter(lastDoc),
-        limit(10)
+        orderBy('eventDateStart', 'desc')
       );
+
+      if (startDateFilter) {
+        q = query(q, where('eventDateStart', '>=', startDateFilter));
+      }
+      if (endDateFilter) {
+        q = query(q, where('eventDateStart', '<=', endDateFilter));
+      }
+
+      q = query(q, startAfter(lastDoc), limit(10));
+
       const querySnapshot = await getDocs(q);
       const fetchedEvents = querySnapshot.docs.map(doc => doc.data());
       
@@ -82,15 +119,19 @@ function Events({ user }) {
         setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
         setEventsList(prev => {
           const newList = [...prev, ...fetchedEvents];
-          sessionStorage.setItem('events_cache', JSON.stringify(newList));
+          if (!startDateFilter && !endDateFilter) {
+            sessionStorage.setItem('events_cache', JSON.stringify(newList));
+          }
           return newList;
         });
-        if (querySnapshot.docs.length < 10) setHasMore(false);
+        setHasMore(querySnapshot.docs.length === 10);
       } else {
         setHasMore(false);
       }
     } catch (error) {
       console.error("Failed to load more events:", error);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -183,85 +224,176 @@ function Events({ user }) {
     resetForm();
   };
 
-  const inputStyle = {
-    padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', 
-    backgroundColor: 'transparent', color: 'inherit', fontSize: '1rem', marginBottom: '12px', width: '100%', boxSizing: 'border-box'
+  const handleExport = async () => {
+    // Fetch all events for a complete export
+    const allEvents = [];
+    const querySnapshot = await getDocs(query(collection(db, 'event'), orderBy('eventDateStart', 'desc')));
+    querySnapshot.forEach((doc) => {
+      allEvents.push(doc.data());
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(allEvents.map(event => ({
+      'Event Name': event.eventName,
+      'Host': event.eventHostest,
+      'Setup Date': event.setUpDate,
+      'Start Date': event.eventDateStart,
+      'End Date': event.eventDateEnd,
+      'Cleanup Date': event.CleanUpDate,
+      'Location': event.eventLocation,
+      'PIC': event.PIC,
+      'Attendees': event.attendees,
+      'Note': event.note,
+      'Keyview Image URL': event.imageLink,
+      'Layout Images (comma-separated)': event.layoutImages.join(', '),
+    })));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Events');
+    XLSX.writeFile(workbook, 'TreasureLayout_Events_Export.xlsx');
   };
+
+  const handleDownloadTemplate = () => {
+    const headers = [['Event Name', 'Host', 'Setup Date', 'Start Date', 'End Date', 'Cleanup Date', 'Location', 'PIC', 'Attendees', 'Note', 'Keyview Image URL', 'Layout Images (comma-separated)']];
+    const worksheet = XLSX.utils.aoa_to_sheet(headers);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Template');
+    XLSX.writeFile(workbook, 'Event_Import_Template.xlsx');
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsImporting(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet);
+
+        if (json.length === 0) {
+          alert("The Excel file is empty or in the wrong format.");
+          return;
+        }
+
+        const importPromises = json.map(row => {
+          const newEventData = {
+            eventName: row['Event Name'] || '',
+            eventHostest: row['Host'] || '',
+            setUpDate: row['Setup Date'] || '',
+            eventDateStart: row['Start Date'] || '',
+            eventDateEnd: row['End Date'] || '',
+            CleanUpDate: row['Cleanup Date'] || '',
+            eventLocation: row['Location'] || '',
+            PIC: row['PIC'] || '',
+            note: row['Note'] || '',
+            attendees: Number(row['Attendees']) || 0,
+            imageLink: row['Keyview Image URL'] || '',
+            layoutImages: row['Layout Images (comma-separated)'] ? row['Layout Images (comma-separated)'].split(',').map(url => url.trim()) : [],
+          };
+          return saveEventToFirestore(newEventData);
+        });
+
+        await Promise.all(importPromises);
+        alert(`Successfully imported ${json.length} events! The event list will refresh.`);
+        sessionStorage.removeItem('events_cache'); // Clear cache to force a refresh
+        window.location.reload(); // Easiest way to show the new data
+      } catch (error) {
+        console.error("Error during import:", error);
+        alert("An error occurred during the import process. Please check the console for details.");
+      } finally {
+        setIsImporting(false);
+        e.target.value = ''; // Reset file input
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const filteredEvents = eventsList.filter(event =>
+    event.eventName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    event.eventHostest.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="mobile-container">
-      <div className="scroll-view">
+      <div className="scroll-view" ref={scrollViewRef}>
         <div className="slider-container">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 className="slider-title">All Events</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <h2 className="slider-title">{t('allEvents')}</h2>
             {canEdit && (
-              <button onClick={() => setShowAddModal(true)} style={{ padding: '8px 16px', borderRadius: '8px', backgroundColor: '#4caf50', color: 'white', border: 'none', cursor: 'pointer', marginRight: '16px' }}>
-                Add Event
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <input type="file" ref={importFileRef} onChange={handleImport} style={{ display: 'none' }} accept=".xlsx, .xls" />
+                <button onClick={() => importFileRef.current.click()} disabled={isImporting} className="btn btn-info btn-sm">
+                  {isImporting ? 'Importing...' : 'Import'}
+                </button>
+                <button onClick={handleExport} className="btn btn-warning btn-sm">
+                  Export
+                </button>
+                 <button onClick={handleDownloadTemplate} className="btn btn-secondary btn-sm">
+                  Template
+                </button>
+                <button onClick={() => setShowAddModal(true)} className="btn btn-success btn-sm">{t('addEvent')}</button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ flex: 1, minWidth: '150px' }}>
+                <label className="form-label" style={{marginBottom: '4px', display: 'block'}}>Start Date</label>
+                <input type="date" value={startDateFilter} onChange={(e) => setStartDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
+            </div>
+            <div style={{ flex: 1, minWidth: '150px' }}>
+                <label className="form-label" style={{marginBottom: '4px', display: 'block'}}>End Date</label>
+                <input type="date" value={endDateFilter} onChange={(e) => setEndDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
+            </div>
+            {(startDateFilter || endDateFilter) && (
+              <button onClick={clearDateFilters} className="btn btn-secondary">
+                Clear
               </button>
             )}
           </div>
+          <SearchInput searchTerm={searchTerm} setSearchTerm={setSearchTerm} placeholder={t('searchEventsPlaceholder')} />
           
           <div className="events-scroll-view" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
-            {eventsList.map((event) => (
-              <EventCard key={event.eventId} event={event} />
-            ))}
+            {loading
+              ? Array.from({ length: 6 }).map((_, index) => (
+                  <EventCardSkeleton key={index} />
+                ))
+              : filteredEvents.map((event) => (
+                  <EventCard key={event.eventId} event={event} />
+                ))}
           </div>
 
           {hasMore && (
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: '16px', marginBottom: '16px' }}>
-              <button onClick={loadMoreEvents} style={{ padding: '10px 20px', borderRadius: '8px', backgroundColor: 'var(--accent)', color: 'white', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>
-                Load Next 10 Events
+              <button onClick={loadMoreEvents} disabled={loadingMore} className="btn btn-primary" style={{padding: '10px 20px'}}>
+                {loadingMore ? 'Loading...' : 'Load Next 10 Events'}
               </button>
             </div>
           )}
         </div>
       </div>
 
+      <BackToTopButton scrollableRef={scrollViewRef} />
+
       {/* Add Event Modal */}
       {showAddModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'var(--bg)', zIndex: 1000, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
-          <h2 style={{ marginTop: '20px', marginBottom: '20px' }}>Add New Event</h2>
-          <form onSubmit={handleAddSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
-            <input name="eventName" placeholder="Event Name" value={formData.eventName} onChange={handleChange} style={inputStyle} />
-            <input name="eventHostest" placeholder="Host" value={formData.eventHostest} onChange={handleChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>Setup Date</label>
-            <input name="setUpDate" type="date" value={formData.setUpDate} onChange={handleChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>Start Date</label>
-            <input name="eventDateStart" type="date" value={formData.eventDateStart} onChange={handleChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>End Date</label>
-            <input name="eventDateEnd" type="date" value={formData.eventDateEnd} onChange={handleChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>Cleanup Date</label>
-            <input name="CleanUpDate" type="date" value={formData.CleanUpDate} onChange={handleChange} style={inputStyle} />
-            <input name="eventLocation" placeholder="Location" value={formData.eventLocation} onChange={handleChange} style={inputStyle} />
-            <input name="PIC" placeholder="PIC (Person in Charge)" value={formData.PIC} onChange={handleChange} style={inputStyle} />
-            <input name="attendees" type="number" placeholder="Attendees" value={formData.attendees} onChange={handleChange} style={inputStyle} />
-            <textarea name="note" placeholder="Notes" value={formData.note} onChange={handleChange} style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }} />
-            
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem', fontWeight: 'bold' }}>Keyview Image</label>
-            {formData.imageLink && <img src={formData.imageLink} alt="Keyview Preview" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />}
-            <input type="file" accept="image/*" onChange={handleKeyviewUpload} style={inputStyle} disabled={isUploadingKeyview} />
-            {isUploadingKeyview && <span style={{fontSize: '0.8rem', color: 'var(--accent)', marginTop: '-8px', marginBottom: '12px', display: 'block'}}>Uploading Keyview...</span>}
-
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem', fontWeight: 'bold' }}>Layout Images</label>
-            {formData.layoutImages.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-                {formData.layoutImages.map((img, idx) => (
-                  <div key={idx} style={{ position: 'relative', width: 'calc(50% - 4px)', height: '100px' }}>
-                    <img src={img} alt={`Layout Preview ${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} />
-                    <button type="button" onClick={() => removeLayoutImage(idx)} style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(255,0,0,0.8)', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <input type="file" accept="image/*" onChange={handleLayoutUpload} style={inputStyle} disabled={isUploadingLayout} />
-            {isUploadingLayout && <span style={{fontSize: '0.8rem', color: 'var(--accent)', marginTop: '-8px', marginBottom: '12px', display: 'block'}}>Uploading Layout...</span>}
-
-            <div style={{ display: 'flex', gap: '10px', marginTop: '10px', marginBottom: '40px' }}>
-              <button type="button" onClick={handleCancel} style={{ flex: 1, padding: '12px', backgroundColor: '#f44336', color: 'white', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Cancel</button>
-              <button type="submit" disabled={isSaving} style={{ flex: 1, padding: '12px', backgroundColor: '#4caf50', color: 'white', borderRadius: '8px', border: 'none', cursor: 'pointer', opacity: isSaving ? 0.7 : 1 }}>{isSaving ? 'Saving...' : 'Save Event'}</button>
-            </div>
-          </form>
-        </div>
+        <Modal isOpen={showAddModal} onClose={handleCancel} title="Add New Event">
+          <EventForm
+            formData={formData}
+            onFormChange={handleChange}
+            onKeyviewUpload={handleKeyviewUpload}
+            onLayoutUpload={handleLayoutUpload}
+            removeLayoutImage={removeLayoutImage}
+            isUploadingKeyview={isUploadingKeyview}
+            isUploadingLayout={isUploadingLayout}
+            onSubmit={handleAddSubmit}
+            onCancel={handleCancel}
+            isSaving={isSaving}
+            submitText="Save Event"
+          />
+        </Modal>
       )}
     </div>
   );

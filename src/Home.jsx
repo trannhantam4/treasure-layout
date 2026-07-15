@@ -2,11 +2,13 @@ import EventCard from './EventCard'
 import { useRef, useState, useEffect } from 'react'
 import { collection, getDocs } from 'firebase/firestore'
 import { db } from './firebase'
+import BackToTopButton from './BackToTopButton'
 
 function Home() {
   const slider1Ref = useRef(null)
   const slider2Ref = useRef(null)
   const [upcomingEvents, setUpcomingEvents] = useState([])
+  const scrollViewRef = useRef(null)
 
   const scroll = (ref, dir) => {
     if (ref.current) {
@@ -46,7 +48,7 @@ function Home() {
   return (
     <div className="mobile-container" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
       {/* Main Screen ScrollView */}
-      <div className="scroll-view">
+      <div className="scroll-view" ref={scrollViewRef}>
         
         <div className="slider-container">
           <h2 className="slider-title">Featured Galleries</h2>
@@ -85,6 +87,7 @@ function Home() {
         </div>
 
       </div>
+      <BackToTopButton scrollableRef={scrollViewRef} />
     </div>
   )
 }

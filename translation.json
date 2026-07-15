@@ -1,0 +1,12 @@
+{
+  "allEvents": "Tất cả Sự kiện",
+  "addEvent": "Thêm Sự kiện",
+  "searchEventsPlaceholder": "Tìm sự kiện theo tên hoặc nhà tổ chức...",
+  "registerForEvent": "Đăng ký tham gia",
+  "unregisterFromEvent": "Hủy đăng ký",
+  "loginToRegister": "Đăng nhập để đăng ký",
+  "attendingBrands": "Các thương hiệu tham dự",
+  "eventLayouts": "Sơ đồ Sự kiện",
+  "back": "Quay lại",
+  "loading": "Đang tải..."
+}

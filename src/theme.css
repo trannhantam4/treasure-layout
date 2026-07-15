@@ -1,0 +1,48 @@
+/* Base variables for Light Mode */
+:root {
+  --background-body: #f4f6f8;
+  --card-bg: #ffffff;
+  --text-h: #1a202c;
+  --text-p: #4a5568;
+  --border: #e2e8f0;
+  --input-bg: #ffffff;
+  --accent: #3182ce;
+  --danger: #e53e3e;
+  --success: #38a169;
+  --warning: #dd6b20;
+}
+
+/* Variables for Dark Mode */
+[data-theme="dark"] {
+  --background-body: #1a202c;
+  --card-bg: #2d3748;
+  --text-h: #e2e8f0;
+  --text-p: #a0aec0;
+  --border: #4a5568;
+  --input-bg: #1a202c;
+  --accent: #63b3ed;
+  --danger: #fc8181;
+  --success: #68d391;
+  --warning: #f6ad55;
+}
+
+body {
+  background-color: var(--background-body);
+  color: var(--text-p);
+  transition: background-color 0.3s, color 0.3s;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-h);
+}
+
+.touchable-card, .modal-content {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border);
+}
+
+.input-style, .google-btn {
+  background-color: var(--input-bg);
+  border: 1px solid var(--border);
+  color: var(--text-h);
+}

@@ -28,6 +28,7 @@ export class Event {
     this.note = note;
     this.imageLink = imageLink || ''; 
     this.layoutImages = layoutImages || [];
+    this.brands = []; // Initialize with empty brands array
     this.attendees = attendees || 0;
   }
 }

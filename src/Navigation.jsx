@@ -26,8 +26,8 @@ function Navigation({ user }) {
       <ul className={`nav-links ${isMenuOpen ? 'open' : ''}`}>
         <li><Link to="/" onClick={closeMenu}>Home</Link></li>
         <li><Link to="/events" onClick={closeMenu}>Events</Link></li>
-        {user?.email === 'trannhantam4@gmail.com' && (
-          <li><Link to="/admin" onClick={closeMenu}>Account Manage</Link></li>
+        {(user?.role === 'admin' || user?.role === 'manager') && (
+          <li><Link to="/admin" onClick={closeMenu}>User Manager</Link></li>
         )}
         <li><Link to="/profile" onClick={closeMenu}>Profile</Link></li>
         {!user ? (

@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, collection } from 'firebase/firestore';
 import { db } from './firebase';
-import { uploadEventImageAndUpdate, uploadKeyviewImageAndUpdate, updateEventInFirestore, deleteEventFromFirestore, uploadImageToImgBB } from './Event';
+import Modal from './Modal';
+import { useTranslation } from 'react-i18next';
+import EventForm from './EventForm';
+import BackToTopButton from './BackToTopButton';
+import { uploadEventImageAndUpdate, uploadKeyviewImageAndUpdate, updateEventInFirestore, deleteEventFromFirestore, uploadImageToImgBB, generateId } from './Event';
 
 import Logo from './Logo.png';
 
@@ -14,6 +18,7 @@ const pinImages = {
 
 function EventDetail({ user }) {
   const { id } = useParams();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   
   const [isUploading, setIsUploading] = useState(false);
@@ -29,6 +34,17 @@ function EventDetail({ user }) {
   const [isUploadingLayoutModal, setIsUploadingLayoutModal] = useState(false);
   const fileInputRef = useRef(null);
   const keyviewFileInputRef = useRef(null);
+  const [showBrandModal, setShowBrandModal] = useState(false);
+  const [isUploadingBrandLogo, setIsUploadingBrandLogo] = useState(false);
+  const [editingBrandIndex, setEditingBrandIndex] = useState(null);
+  const [brandFormData, setBrandFormData] = useState({
+    id: '',
+    name: '',
+    logo: '',
+    rank: 'silver',
+    position: ''
+  });
+
 
   // Find the event locally first, or initialize to null
   const [event, setEvent] = useState(null);
@@ -36,7 +52,10 @@ function EventDetail({ user }) {
 
   const userRole = user?.role?.toLowerCase();
   const canEdit = userRole === 'admin' || userRole === 'manager';
+  const isRegistered = event?.registeredUsers?.includes(user?.uid);
+  const registeredCount = event?.registeredUsers?.length || 0;
   const imageContainerRef = useRef(null);
+  const scrollViewRef = useRef(null);
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -92,14 +111,14 @@ function EventDetail({ user }) {
   }, [event]);
 
   if (loadingEvent) {
-    return <div style={{ display: 'flex', justifyContent: 'center', marginTop: '50px' }}>Loading event...</div>;
+    return <div style={{ display: 'flex', justifyContent: 'center', marginTop: '50px' }}>{t('loading')}</div>;
   }
 
   if (!event) {
     return (
       <section id="center">
         <h2>Event not found</h2>
-        <button onClick={() => navigate(-1)} className="counter">Go Back</button>
+        <button onClick={() => navigate(-1)} className="counter">{t('back')}</button>
       </section>
     );
   }
@@ -117,6 +136,38 @@ function EventDetail({ user }) {
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRegister = async () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+
+    const eventRef = doc(db, 'event', id);
+
+    try {
+      if (isRegistered) {
+        // Un-register
+        await updateDoc(eventRef, {
+          registeredUsers: arrayRemove(user.uid)
+        });
+        setEvent(prev => ({ ...prev, registeredUsers: prev.registeredUsers.filter(uid => uid !== user.uid) }));
+        alert('You have unregistered from the event.');
+      } else {
+        // Register
+        await updateDoc(eventRef, {
+          registeredUsers: arrayUnion(user.uid)
+        });
+        setEvent(prev => ({ ...prev, registeredUsers: [...(prev.registeredUsers || []), user.uid] }));
+        alert('You have successfully registered for the event!');
+      }
+      // Invalidate cache to reflect attendee count changes if displayed elsewhere
+      sessionStorage.removeItem('events_cache');
+    } catch (error) {
+      console.error("Error updating registration:", error);
+      alert("There was an issue updating your registration. Please try again.");
     }
   };
 
@@ -205,6 +256,9 @@ function EventDetail({ user }) {
   };
 
   const handleDeleteEvent = async () => {
+    if (!window.confirm("Are you sure you want to delete this event? This action cannot be undone.")) {
+      return;
+    }
     try {
       await deleteEventFromFirestore(id);
       sessionStorage.removeItem('events_cache');
@@ -219,9 +273,86 @@ function EventDetail({ user }) {
     }
   };
 
-  const inputStyle = {
-    padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', 
-    backgroundColor: 'transparent', color: 'inherit', fontSize: '1rem', marginBottom: '12px', width: '100%', boxSizing: 'border-box'
+  const handleBrandLogoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setIsUploadingBrandLogo(true);
+    try {
+      const url = await uploadImageToImgBB(file);
+      setBrandFormData(prev => ({ ...prev, logo: url }));
+    } catch (err) {
+      alert("Brand logo upload failed.");
+    } finally {
+      setIsUploadingBrandLogo(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleBrandFormChange = (e) => {
+    const { name, value } = e.target;
+    setBrandFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const openBrandModal = (brand = null, index = null) => {
+    if (brand) {
+      setBrandFormData(brand);
+      setEditingBrandIndex(index);
+    } else {
+      setBrandFormData({ id: '', name: '', logo: '', rank: 'silver', position: '' });
+      setEditingBrandIndex(null);
+    }
+    setShowBrandModal(true);
+  };
+
+  const handleBrandSubmit = async (e) => {
+    e.preventDefault();
+    if (!brandFormData.name || !brandFormData.logo) {
+      alert("Please provide a brand name and logo.");
+      return;
+    }
+
+    const currentBrands = event.brands || [];
+    let updatedBrands;
+
+    if (editingBrandIndex !== null) {
+      // Editing existing brand
+      updatedBrands = [...currentBrands];
+      updatedBrands[editingBrandIndex] = brandFormData;
+    } else {
+      // Adding new brand
+      const newBrand = { ...brandFormData, id: generateId(9) };
+      updatedBrands = [...currentBrands, newBrand];
+    }
+
+    try {
+      const eventRef = doc(db, 'event', id);
+      await updateDoc(eventRef, { brands: updatedBrands });
+      setEvent(prev => ({ ...prev, brands: updatedBrands }));
+      setShowBrandModal(false);
+      sessionStorage.removeItem('events_cache');
+    } catch (error) {
+      console.error("Error saving brand:", error);
+      alert("Failed to save brand information.");
+    }
+  };
+
+  const handleBrandDelete = async (brandIdToDelete) => {
+    if (!window.confirm("Are you sure you want to delete this brand?")) {
+      return;
+    }
+
+    const updatedBrands = (event.brands || []).filter(brand => brand.id !== brandIdToDelete);
+
+    try {
+      const eventRef = doc(db, 'event', id);
+      await updateDoc(eventRef, { brands: updatedBrands });
+      setEvent(prev => ({ ...prev, brands: updatedBrands }));
+      sessionStorage.removeItem('events_cache');
+      alert("Brand deleted successfully.");
+    } catch (error) {
+      console.error("Error deleting brand:", error);
+      alert("Failed to delete brand.");
+    }
   };
 
   const handleFullscreenClick = async (e) => {
@@ -462,15 +593,15 @@ function EventDetail({ user }) {
       )}
 
       <button onClick={() => navigate(-1)} className="counter" style={{ alignSelf: 'flex-start', marginBottom: '16px' }}>
-        &larr; Back
+        &larr; {t('back')}
       </button>
-      <div className="scroll-view">
+      <div className="scroll-view" ref={scrollViewRef}>
         {/* Main Event Keyview Image */}
-        <div style={{ position: 'relative', width: '100%', height: '250px' }}>
+        <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', borderRadius: '12px', overflow: 'hidden' }}>
           <img 
             src={currentKeyviewImage} 
             alt={event.eventName} 
-            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }} 
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} 
           />
           {canEdit && (
             <>
@@ -507,27 +638,69 @@ function EventDetail({ user }) {
           <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>Location:</strong> {event.eventLocation}</p>
           <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>Setup:</strong> {event.setUpDate} | <strong>Cleanup:</strong> {event.CleanUpDate}</p>
           <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>PIC:</strong> {event.PIC}</p>
-          <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>Attendees:</strong> {event.attendees}</p>
+          <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>Registered:</strong> {registeredCount} / {event.attendees > 0 ? event.attendees : '∞'}</p>
           <p style={{ fontSize: '0.9rem', marginBottom: '24px' }}><strong>Note:</strong> {event.note}</p>
-          <button className="counter" style={{ width: '100%' }}>Register for Event</button>
+          <button 
+            onClick={handleRegister} 
+            className="counter" 
+            style={{ width: '100%', backgroundColor: isRegistered ? '#dc3545' : 'var(--accent)', color: 'white' }}
+          >
+            {user ? (isRegistered ? t('unregisterFromEvent') : t('registerForEvent')) : t('loginToRegister')}
+          </button>
 
           {/* Admin Action Buttons */}
           {canEdit && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-              <button onClick={() => setShowUpdateModal(true)} style={{ flex: 1, padding: '10px', borderRadius: '8px', backgroundColor: '#ff9800', color: 'white', border: 'none', cursor: 'pointer' }}>Update Event</button>
-              <button onClick={handleDeleteEvent} style={{ flex: 1, padding: '10px', borderRadius: '8px', backgroundColor: '#f44336', color: 'white', border: 'none', cursor: 'pointer' }}>Delete Event</button>
+            <div className="btn-group" style={{marginTop: '16px', marginBottom: 0}}>
+              <button onClick={() => setShowUpdateModal(true)} className="btn btn-warning btn-flex" style={{padding: '10px'}}>Update Event</button>
+              <button onClick={handleDeleteEvent} className="btn btn-danger btn-flex" style={{padding: '10px'}}>Delete Event</button>
             </div>
           )}
+        </div>
+        
+        {/* Brands Section */}
+        <div style={{ marginTop: '24px', textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h2 style={{ fontSize: '1.5rem', margin: 0 }}>{t('attendingBrands')}</h2>
+            {canEdit && (
+              <button onClick={() => openBrandModal()} className="btn btn-primary" style={{padding: '6px 12px'}}>
+                {t('addEvent')}
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {(event.brands && event.brands.length > 0) ? (
+              event.brands.map((brand, index) => (
+                <div key={brand.id} className="touchable-card" style={{ flexDirection: 'row', alignItems: 'center', padding: '12px', gap: '12px' }}>
+                  <img src={brand.logo} alt={brand.name} style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', backgroundColor: '#fff' }} />
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ margin: 0, fontSize: '1.1rem' }}>{brand.name}</h4>
+                    <p style={{ margin: '2px 0', fontSize: '0.9rem', opacity: 0.8 }}>Rank: <span style={{ textTransform: 'capitalize', fontWeight: '500' }}>{brand.rank}</span></p>
+                    <p style={{ margin: '2px 0', fontSize: '0.9rem', opacity: 0.8 }}>Position: {brand.position}</p>
+                  </div>
+                  {canEdit && (
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => openBrandModal(brand, index)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>✏️</button>
+                      <button onClick={() => handleBrandDelete(brand.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>🗑️</button>
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div style={{ width: '100%', padding: '32px 0', textAlign: 'center', color: 'var(--text-h)', backgroundColor: 'var(--border)', borderRadius: '12px' }}>
+                No brands listed for this event yet.
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Layout Images Section at the bottom */}
         <div style={{ marginTop: '24px', textAlign: 'left' }}>
-          <h2 style={{ fontSize: '1.5rem', marginBottom: '16px' }}>Event Layouts</h2>
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '16px' }}>{t('eventLayouts')}</h2>
           
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             {currentLayoutImages.length > 0 ? (
               currentLayoutImages.map((img, index) => (
-                <div key={index} style={{ position: 'relative', width: 'calc(50% - 6px)', height: '150px', backgroundColor: 'var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                <div key={index} style={{ position: 'relative', width: 'calc(50% - 6px)', paddingTop: 'calc((50% - 6px) * 9 / 16)', backgroundColor: 'var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
                   <img 
                     src={typeof img === 'string' ? img : img.url} 
                     alt={`Event Layout ${index + 1}`} 
@@ -536,7 +709,7 @@ function EventDetail({ user }) {
                       setFullscreenImage(imageObject);
                       setFullscreenImageIndex(index);
                     }}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} 
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} 
                   />
                 </div>
               ))
@@ -573,51 +746,58 @@ function EventDetail({ user }) {
         </div>
       </div>
 
-      {/* Update Event Modal */}
-      {showUpdateModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'var(--bg)', zIndex: 1000, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
-          <h2 style={{ marginTop: '20px', marginBottom: '20px' }}>Update Event</h2>
-          <form onSubmit={handleUpdateSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
-            <input name="eventName" placeholder="Event Name" value={formData.eventName} onChange={handleFormChange} style={inputStyle} />
-            <input name="eventHostest" placeholder="Host" value={formData.eventHostest} onChange={handleFormChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>Setup Date</label>
-            <input name="setUpDate" type="date" value={formData.setUpDate} onChange={handleFormChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>Start Date</label>
-            <input name="eventDateStart" type="date" value={formData.eventDateStart} onChange={handleFormChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>End Date</label>
-            <input name="eventDateEnd" type="date" value={formData.eventDateEnd} onChange={handleFormChange} style={inputStyle} />
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem' }}>Cleanup Date</label>
-            <input name="CleanUpDate" type="date" value={formData.CleanUpDate} onChange={handleFormChange} style={inputStyle} />
-            <input name="eventLocation" placeholder="Location" value={formData.eventLocation} onChange={handleFormChange} style={inputStyle} />
-            <input name="PIC" placeholder="PIC (Person in Charge)" value={formData.PIC} onChange={handleFormChange} style={inputStyle} />
-            <input name="attendees" type="number" placeholder="Attendees" value={formData.attendees} onChange={handleFormChange} style={inputStyle} />
-            <textarea name="note" placeholder="Notes" value={formData.note} onChange={handleFormChange} style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }} />
+      <BackToTopButton scrollableRef={scrollViewRef} />
 
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem', fontWeight: 'bold' }}>Keyview Image</label>
-            {formData.imageLink && <img src={formData.imageLink} alt="Keyview Preview" style={{ width: '100%', height: '150px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />}
-            <input type="file" accept="image/*" onChange={handleKeyviewUploadModal} style={inputStyle} disabled={isUploadingKeyviewModal} />
-            {isUploadingKeyviewModal && <span style={{fontSize: '0.8rem', color: 'var(--accent)', marginTop: '-8px', marginBottom: '12px', display: 'block'}}>Uploading Keyview...</span>}
+      {/* Add/Update Brand Modal */}
+      {showBrandModal && (
+        <Modal isOpen={showBrandModal} onClose={() => setShowBrandModal(false)} title={editingBrandIndex !== null ? 'Update Brand' : 'Add Brand'}>
+          <h2 style={{ marginTop: '20px', marginBottom: '20px' }}>{editingBrandIndex !== null ? 'Update' : 'Add'} Brand</h2>
+          <form onSubmit={handleBrandSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
+            <input name="name" placeholder="Brand Name" value={brandFormData.name} onChange={handleBrandFormChange} className="input-style" required />
+            <input name="position" placeholder="Position (e.g., Booth A1)" value={brandFormData.position} onChange={handleBrandFormChange} className="input-style" />
+            <label className="form-label">Rank</label>
+            <select name="rank" value={brandFormData.rank} onChange={handleBrandFormChange} className="input-style">
+              <option value="platinum">Platinum</option>
+              <option value="gold">Gold</option>
+              <option value="silver">Silver</option>
+            </select>
 
-            <label style={{ marginBottom: '4px', fontSize: '0.9rem', fontWeight: 'bold' }}>Layout Images</label>
-            {formData.layoutImages && formData.layoutImages.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '8px' }}>
-                {formData.layoutImages.map((img, idx) => (
-                  <div key={idx} style={{ position: 'relative', width: 'calc(50% - 4px)', height: '100px' }}>
-                    <img src={img} alt={`Layout Preview ${idx}`} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} />
-                    <button type="button" onClick={() => removeLayoutImageModal(idx)} style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(255,0,0,0.8)', color: 'white', border: 'none', borderRadius: '50%', width: '24px', height: '24px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-                  </div>
-                ))}
+            <label className="form-label form-label-bold">Brand Logo</label>
+            {brandFormData.logo && (
+              <div style={{ marginBottom: '8px', padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: '#fff' }}>
+                <img src={brandFormData.logo} alt="Logo Preview" style={{ width: '100%', height: '100px', objectFit: 'contain' }} />
               </div>
             )}
-            <input type="file" accept="image/*" onChange={handleLayoutUploadModal} style={inputStyle} disabled={isUploadingLayoutModal} />
-            {isUploadingLayoutModal && <span style={{fontSize: '0.8rem', color: 'var(--accent)', marginTop: '-8px', marginBottom: '12px', display: 'block'}}>Uploading Layout...</span>}
+            <input type="file" accept="image/*" onChange={handleBrandLogoUpload} className="input-style" disabled={isUploadingBrandLogo} />
+            {isUploadingBrandLogo && <span className="upload-status">Uploading Logo...</span>}
 
-            <div style={{ display: 'flex', gap: '10px', marginTop: '10px', marginBottom: '40px' }}>
-              <button type="button" onClick={() => setShowUpdateModal(false)} style={{ flex: 1, padding: '12px', backgroundColor: '#f44336', color: 'white', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>Cancel</button>
-              <button type="submit" disabled={isSaving} style={{ flex: 1, padding: '12px', backgroundColor: '#4caf50', color: 'white', borderRadius: '8px', border: 'none', cursor: 'pointer', opacity: isSaving ? 0.7 : 1 }}>{isSaving ? 'Saving...' : 'Save Changes'}</button>
+            <div className="btn-group">
+              <button type="button" onClick={() => setShowBrandModal(false)} className="btn btn-danger btn-flex">Cancel</button>
+              <button type="submit" className="btn btn-success btn-flex">
+                {editingBrandIndex !== null ? 'Save Changes' : 'Add Brand'}
+              </button>
             </div>
           </form>
-        </div>
+        </Modal>
+      )}
+
+      {/* Update Event Modal */}
+      {showUpdateModal && (
+        <Modal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} title="Update Event">
+          <EventForm
+            formData={formData}
+            onFormChange={handleFormChange}
+            onKeyviewUpload={handleKeyviewUploadModal}
+            onLayoutUpload={handleLayoutUploadModal}
+            removeLayoutImage={removeLayoutImageModal}
+            isUploadingKeyview={isUploadingKeyviewModal}
+            isUploadingLayout={isUploadingLayoutModal}
+            onSubmit={handleUpdateSubmit}
+            onCancel={() => setShowUpdateModal(false)}
+            isSaving={isSaving}
+            submitText="Save Changes"
+          />
+        </Modal>
       )}
     </div>
   );
