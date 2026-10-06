@@ -1,9 +1,13 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore, setLogLevel } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  setLogLevel
+} from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 
-// Your web app's Firebase configuration
-// Using environment variables for better security practices
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -11,16 +15,22 @@ const firebaseConfig = {
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Enable verbose logging to debug connection issues
-setLogLevel('debug');
+// Keep console log level clean — suppress verbose debug logs
+setLogLevel('error');
 
-export const db = getFirestore(app);
+// Initialize Firestore with IndexedDB persistent local cache to eliminate repeat server reads
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
 export const auth = getAuth(app);
+export const functions = getFunctions(app);
 export const googleProvider = new GoogleAuthProvider();
 export default app;

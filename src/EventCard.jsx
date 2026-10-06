@@ -1,32 +1,39 @@
+import { memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-function EventCard({ event: { eventId, imageLink, eventName, eventHostest, eventDateStart, eventDateEnd } }) {
+const EventCard = memo(({ event }) => {
   const navigate = useNavigate();
 
-  const handleAction = (e) => {
-    // Allow navigation on mouse click OR keyboard 'Enter'/'Space'
-    if (e.type === 'click' || e.key === 'Enter' || e.key === ' ') {
+  const handleClick = () => {
+    navigate(`/events/${event.eventId}`);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      navigate(`/events/${eventId}`);
+      handleClick();
     }
   };
 
+  const imageLink = event.imageLink || 'https://via.placeholder.com/150';
+
   return (
-    <article 
-      className="touchable-card" 
-      onClick={handleAction}
-      onKeyDown={handleAction}
-      role="button"
+    <div
+      className="touchable-card"
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
       tabIndex={0}
+      role="button"
+      aria-label={`View details for event ${event.eventName}`}
     >
-      <img src={imageLink} alt={eventName} className="event-image" />
+      <img src={imageLink} alt={event.eventName} className="event-image" loading="lazy" decoding="async" />
       <div className="event-info">
-        <h3>{eventName}</h3>
-        <p>{eventHostest}</p>
-        <p className="event-dates">{eventDateStart} - {eventDateEnd}</p>
+        <h3>{event.eventName}</h3>
+        <p>{event.eventLocation}</p>
+        <p className="event-dates">{event.eventDateStart} - {event.eventDateEnd}</p>
       </div>
-    </article>
+    </div>
   );
-}
+});
 
 export default EventCard;

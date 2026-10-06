@@ -1,29 +1,19 @@
-import { useState, useEffect } from 'react';
+import { memo } from 'react';
 import './FloatingButtons.css';
 import { useTranslation } from 'react-i18next';
+import { useTheme } from './hooks/useTheme';
 
-const ThemeToggleButton = () => {
-  // Initialize theme from localStorage or default to 'light'
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
-
-  // Effect to apply the theme to the <html> element
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
-  };
+const ThemeToggleButton = memo(() => {
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <button onClick={toggleTheme} className="floating-btn theme-btn" aria-label="Toggle theme">
       {theme === 'light' ? '🌙' : '☀️'}
     </button>
   );
-};
+});
 
-const LanguageButton = () => {
+const LanguageButton = memo(() => {
   const { i18n } = useTranslation();
 
   const cycleLanguage = () => {
@@ -36,7 +26,7 @@ const LanguageButton = () => {
       {i18n.language.toUpperCase()}
     </button>
   );
-};
+});
 
 export default function FloatingButtons() {
   return (

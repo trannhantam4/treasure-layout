@@ -1,15 +1,19 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { collection, getDocs, query, limit, orderBy, where, startAfter } from 'firebase/firestore';
 import { db } from './firebase';
-import { saveEventToFirestore, uploadImageToImgBB } from './Event';
+import { saveEventToFirestore, uploadImageToImgBB, INITIAL_EVENT_FORM } from './Event';
 import SearchInput from './SearchInput';
 import EventCard from './EventCard';
 import EventCardSkeleton from './EventCardSkeleton';
 import Modal from './Modal';
 import EventForm from './EventForm';
 import BackToTopButton from './BackToTopButton';
-import * as XLSX from 'xlsx';
 import { useTranslation } from 'react-i18next';
+import * as XLSX from 'xlsx';
+import { getCachedEventsList, cacheEventsList } from './storage';
+import { canManage } from './utils/auth';
+import { handleFirebaseError } from './utils/firebaseErrors';
+
 
 function Events({ user }) {
   const [eventsList, setEventsList] = useState([]);
@@ -28,31 +32,30 @@ function Events({ user }) {
   const [hasMore, setHasMore] = useState(true);
   const [startDateFilter, setStartDateFilter] = useState('');
   const [endDateFilter, setEndDateFilter] = useState('');
-  const [formData, setFormData] = useState({
-    eventName: '',
-    eventHostest: '',
-    setUpDate: '',
-    eventDateStart: '',
-    eventDateEnd: '',
-    CleanUpDate: '',
-    eventLocation: '',
-    PIC: '',
-    note: '',
-    attendees: 0,
-    imageLink: '',
-    layoutImages: []
-  });
+  const [formData, setFormData] = useState(INITIAL_EVENT_FORM);
 
-  const canEdit = user?.role === 'admin' || user?.role === 'manager';
+  const canEdit = canManage(user);
 
-  const clearDateFilters = () => {
+  const clearDateFilters = useCallback(() => {
     setStartDateFilter('');
     setEndDateFilter('');
-  };
+  }, []);
 
   useEffect(() => {
     const fetchEvents = async () => {
-      setLoading(true);
+      // 1. For unfiltered views, try IndexedDB device storage first (0ms delay, 0 server reads)
+      if (!startDateFilter && !endDateFilter) {
+        try {
+          const cached = await getCachedEventsList();
+          if (cached && cached.length > 0) {
+            setEventsList(cached);
+            setLoading(false);
+          }
+        } catch {
+          /* ignore cache read error */
+        }
+      }
+
       try {
         let q = query(
           collection(db, 'event'),
@@ -74,10 +77,11 @@ function Events({ user }) {
         if (querySnapshot.docs.length > 0) {
           setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
           setEventsList(fetchedEvents);
-          if (!startDateFilter && !endDateFilter) {
-            sessionStorage.setItem('events_cache', JSON.stringify(fetchedEvents));
-          }
           setHasMore(querySnapshot.docs.length === 10);
+          // Cache unfiltered results
+          if (!startDateFilter && !endDateFilter) {
+            cacheEventsList(fetchedEvents);
+          }
         } else {
           setEventsList([]);
           setHasMore(false);
@@ -119,9 +123,6 @@ function Events({ user }) {
         setLastDoc(querySnapshot.docs[querySnapshot.docs.length - 1]);
         setEventsList(prev => {
           const newList = [...prev, ...fetchedEvents];
-          if (!startDateFilter && !endDateFilter) {
-            sessionStorage.setItem('events_cache', JSON.stringify(newList));
-          }
           return newList;
         });
         setHasMore(querySnapshot.docs.length === 10);
@@ -135,17 +136,13 @@ function Events({ user }) {
     }
   };
 
-  const handleChange = (e) => {
+  const handleChange = useCallback((e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-  };
+  }, []);
 
   const resetForm = () => {
-    setFormData({
-      eventName: '', eventHostest: '', setUpDate: '', eventDateStart: '',
-      eventDateEnd: '', CleanUpDate: '', eventLocation: '', PIC: '', note: '', attendees: 0,
-      imageLink: '', layoutImages: []
-    });
+    setFormData(INITIAL_EVENT_FORM);
   };
 
   const handleKeyviewUpload = async (e) => {
@@ -155,14 +152,14 @@ function Events({ user }) {
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, imageLink: url }));
-    } catch (err) {
+    } catch {
       alert("Keyview image upload failed.");
     } finally {
       setIsUploadingKeyview(false);
       e.target.value = ''; // reset input
     }
   };
-
+  
   const handleLayoutUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -170,7 +167,7 @@ function Events({ user }) {
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, layoutImages: [...prev.layoutImages, url] }));
-    } catch (err) {
+    } catch {
       alert("Layout image upload failed.");
     } finally {
       setIsUploadingLayout(false);
@@ -201,28 +198,25 @@ function Events({ user }) {
       const newId = await saveEventToFirestore(newEventData);
       const addedEvent = { ...newEventData, eventId: newId };
       setEventsList(prev => {
-        const updatedList = [...prev, addedEvent];
-        sessionStorage.setItem('events_cache', JSON.stringify(updatedList));
-        return updatedList;
+        const updated = [...prev, addedEvent];
+        cacheEventsList(updated); // Update cache so re-navigation shows the new event
+        return updated;
       });
       alert('Event successfully added to Firestore! Check console for details.');
       setShowAddModal(false);
       resetForm();
     } catch (error) {
-      if (error.code === 'unavailable' || error.message.includes('offline')) {
-        alert('Failed to connect to Firebase. You appear to be offline or a browser extension is blocking the connection.');
-      } else {
-        alert('Failed to add event: ' + error.message);
-      }
+      handleFirebaseError(error, 'add event');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
     setShowAddModal(false);
     resetForm();
-  };
+  }, []); // Dependencies: setShowAddModal, resetForm
+
 
   const handleExport = async () => {
     // Fetch all events for a complete export
@@ -231,6 +225,7 @@ function Events({ user }) {
     querySnapshot.forEach((doc) => {
       allEvents.push(doc.data());
     });
+    const XLSX = await import('xlsx'); // Dynamic import
 
     const worksheet = XLSX.utils.json_to_sheet(allEvents.map(event => ({
       'Event Name': event.eventName,
@@ -296,10 +291,34 @@ function Events({ user }) {
           return saveEventToFirestore(newEventData);
         });
 
-        await Promise.all(importPromises);
-        alert(`Successfully imported ${json.length} events! The event list will refresh.`);
-        sessionStorage.removeItem('events_cache'); // Clear cache to force a refresh
-        window.location.reload(); // Easiest way to show the new data
+        const savedIds = await Promise.all(importPromises);
+
+        // Build event objects matching the app's schema so they appear immediately in the list
+        const importedEvents = json.map((row, i) => ({
+          eventId: savedIds[i],
+          eventName: row['Event Name'] || '',
+          eventHostest: row['Host'] || '',
+          setUpDate: row['Setup Date'] || '',
+          eventDateStart: row['Start Date'] || '',
+          eventDateEnd: row['End Date'] || '',
+          CleanUpDate: row['Cleanup Date'] || '',
+          eventLocation: row['Location'] || '',
+          PIC: row['PIC'] || '',
+          note: row['Note'] || '',
+          attendees: Number(row['Attendees']) || 0,
+          imageLink: row['Keyview Image URL'] || '',
+          layoutImages: row['Layout Images (comma-separated)']
+            ? row['Layout Images (comma-separated)'].split(',').map(url => url.trim())
+            : [],
+        }));
+
+        // Append imported events to the current list and refresh cache — no page reload needed
+        setEventsList(prev => {
+          const updated = [...prev, ...importedEvents];
+          cacheEventsList(updated);
+          return updated;
+        });
+        alert(`Successfully imported ${json.length} event(s)!`);
       } catch (error) {
         console.error("Error during import:", error);
         alert("An error occurred during the import process. Please check the console for details.");
@@ -317,13 +336,13 @@ function Events({ user }) {
   );
 
   return (
-    <div className="mobile-container">
+    <div className="mobile-container page-enter">
       <div className="scroll-view" ref={scrollViewRef}>
         <div className="slider-container">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-            <h2 className="slider-title">{t('allEvents')}</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+            <h2 className="slider-title" style={{ margin: 0 }}>{t('allEvents')}</h2>
             {canEdit && (
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                 <input type="file" ref={importFileRef} onChange={handleImport} style={{ display: 'none' }} accept=".xlsx, .xls" />
                 <button onClick={() => importFileRef.current.click()} disabled={isImporting} className="btn btn-info btn-sm">
                   {isImporting ? 'Importing...' : 'Import'}
@@ -331,43 +350,43 @@ function Events({ user }) {
                 <button onClick={handleExport} className="btn btn-warning btn-sm">
                   Export
                 </button>
-                 <button onClick={handleDownloadTemplate} className="btn btn-secondary btn-sm">
+                <button onClick={handleDownloadTemplate} className="btn btn-secondary btn-sm">
                   Template
                 </button>
-                <button onClick={() => setShowAddModal(true)} className="btn btn-success btn-sm">{t('addEvent')}</button>
+                <button onClick={() => setShowAddModal(true)} className="btn btn-primary btn-sm">{t('addEvent')}</button>
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ flex: 1, minWidth: '150px' }}>
-                <label className="form-label" style={{marginBottom: '4px', display: 'block'}}>Start Date</label>
-                <input type="date" value={startDateFilter} onChange={(e) => setStartDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
+          <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ flex: 1, minWidth: '140px' }}>
+                <label htmlFor="startDateFilter" className="form-label">Start Date</label>
+                <input id="startDateFilter" type="date" value={startDateFilter} onChange={(e) => setStartDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
             </div>
-            <div style={{ flex: 1, minWidth: '150px' }}>
-                <label className="form-label" style={{marginBottom: '4px', display: 'block'}}>End Date</label>
-                <input type="date" value={endDateFilter} onChange={(e) => setEndDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
+            <div style={{ flex: 1, minWidth: '140px' }}>
+                <label htmlFor="endDateFilter" className="form-label">End Date</label>
+                <input id="endDateFilter" type="date" value={endDateFilter} onChange={(e) => setEndDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
             </div>
             {(startDateFilter || endDateFilter) && (
-              <button onClick={clearDateFilters} className="btn btn-secondary">
+              <button onClick={clearDateFilters} className="btn btn-secondary btn-sm">
                 Clear
               </button>
             )}
           </div>
           <SearchInput searchTerm={searchTerm} setSearchTerm={setSearchTerm} placeholder={t('searchEventsPlaceholder')} />
           
-          <div className="events-scroll-view" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+          <div className="grid-2col" style={{ marginTop: 'var(--space-4)' }}>
             {loading
               ? Array.from({ length: 6 }).map((_, index) => (
                   <EventCardSkeleton key={index} />
                 ))
-              : filteredEvents.map((event) => (
+              : filteredEvents.map((event) => ( // EventCard is memoized, so it will only re-render if event prop changes
                   <EventCard key={event.eventId} event={event} />
                 ))}
           </div>
 
           {hasMore && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '16px', marginBottom: '16px' }}>
-              <button onClick={loadMoreEvents} disabled={loadingMore} className="btn btn-primary" style={{padding: '10px 20px'}}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--space-6)', marginBottom: 'var(--space-4)' }}>
+              <button onClick={loadMoreEvents} disabled={loadingMore} className="btn btn-primary" style={{ padding: 'var(--space-3) var(--space-6)' }}>
                 {loadingMore ? 'Loading...' : 'Load Next 10 Events'}
               </button>
             </div>

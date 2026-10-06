@@ -1,12 +1,23 @@
 import { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, collection } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
 import { db } from './firebase';
-import Modal from './Modal';
+import Modal, { modalOverlayStyle, modalCardStyle } from './Modal';
 import { useTranslation } from 'react-i18next';
 import EventForm from './EventForm';
 import BackToTopButton from './BackToTopButton';
-import { uploadEventImageAndUpdate, uploadKeyviewImageAndUpdate, updateEventInFirestore, deleteEventFromFirestore, uploadImageToImgBB, generateId } from './Event';
+import { uploadEventImageAndUpdate, uploadKeyviewImageAndUpdate, updateEventInFirestore, deleteEventFromFirestore, uploadImageToImgBB, INITIAL_EVENT_FORM } from './Event';
+import QRCode from 'qrcode';
+import { getBrandsForEvent, removeAssignment, updateAssignment, setTreasureHolder, getOrCreateStampTicket } from './Brand';
+import AssignBrandModal, { downloadBrandAssignmentTemplate } from './AssignBrandModal';
+import { useBrands } from './hooks/useBrands';
+import StampTicket from './StampTicket';
+import { getCachedEventDetail, cacheEventDetail, getCachedUserRegistration, cacheUserRegistration, cacheStampTicket, getCachedTreasureHuntOptIn, cacheTreasureHuntOptIn } from './storage';
+import { canManage } from './utils/auth';
+import { handleFirebaseError } from './utils/firebaseErrors';
+import { stampKey } from './utils/keys';
+import BrandLogo from './components/BrandLogo';
+import EmptyState from './components/EmptyState';
 
 import Logo from './Logo.png';
 
@@ -20,95 +31,136 @@ function EventDetail({ user }) {
   const { id } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  
+  const fileInputRef = useRef(null);
+  const keyviewFileInputRef = useRef(null);
+
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingKeyview, setIsUploadingKeyview] = useState(false);
   const [fullscreenImage, setFullscreenImage] = useState(null);
   const [fullscreenImageIndex, setFullscreenImageIndex] = useState(null);
   const [selectedPinType, setSelectedPinType] = useState('default');
-  const [pinSize, setPinSize] = useState(30); // Default pin size
+  const [pinSize, setPinSize] = useState(30);
   const [draggingPinIndex, setDraggingPinIndex] = useState(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [isUploadingKeyviewModal, setIsUploadingKeyviewModal] = useState(false);
   const [isUploadingLayoutModal, setIsUploadingLayoutModal] = useState(false);
-  const fileInputRef = useRef(null);
-  const keyviewFileInputRef = useRef(null);
-  const [showBrandModal, setShowBrandModal] = useState(false);
-  const [isUploadingBrandLogo, setIsUploadingBrandLogo] = useState(false);
-  const [editingBrandIndex, setEditingBrandIndex] = useState(null);
-  const [brandFormData, setBrandFormData] = useState({
-    id: '',
-    name: '',
-    logo: '',
-    rank: 'silver',
-    position: ''
-  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [assignedBrands, setAssignedBrands] = useState([]);
+  const [loadingBrands, setLoadingBrands] = useState(true);
+  const [showAssignBrandModal, setShowAssignBrandModal] = useState(false);
+  const [assignModalTab, setAssignModalTab] = useState('single');
+  const { brands: globalBrands } = useBrands();
+  const [userRegState, setUserRegState] = useState(null);
+  const [showRegModal, setShowRegModal] = useState(false);
+  const [joinTreasureHunt, setJoinTreasureHunt] = useState(true);
+  const [userJoinedHunt, setUserJoinedHunt] = useState(false);
+  const [selectedBrandDetail, setSelectedBrandDetail] = useState(null);
+  const [editBrandPosition, setEditBrandPosition] = useState('');
+  const [savingBrandPosition, setSavingBrandPosition] = useState(false);
+  const [brandPositionSavedMsg, setBrandPositionSavedMsg] = useState(false);
 
+  useEffect(() => {
+    if (selectedBrandDetail) {
+      setEditBrandPosition(selectedBrandDetail.position || '');
+      setBrandPositionSavedMsg(false);
+    }
+  }, [selectedBrandDetail?.combinedId]);
+
+  // QR canvas refs: keyed by combinedId
+  const qrCanvasRefs = useRef({});
 
   // Find the event locally first, or initialize to null
   const [event, setEvent] = useState(null);
   const [loadingEvent, setLoadingEvent] = useState(!event);
+  const [currentLayoutImages, setCurrentLayoutImages] = useState([]);
+  const [currentKeyviewImage, setCurrentKeyviewImage] = useState('');
+  const [formData, setFormData] = useState(INITIAL_EVENT_FORM);
 
-  const userRole = user?.role?.toLowerCase();
-  const canEdit = userRole === 'admin' || userRole === 'manager';
-  const isRegistered = event?.registeredUsers?.includes(user?.uid);
-  const registeredCount = event?.registeredUsers?.length || 0;
+  const canEdit = canManage(user);
+  const treasureBrands = assignedBrands.filter((b) => b.isTreasureHolder);
+  
+  const isRegistered = user ? (userRegState ?? event?.registeredUsers?.includes(user?.uid)) : false;
+
+  // Display registered count starting at 100+ minimum, updating in blocks of 100 once registered count exceeds 100
+  const rawCount = event?.registeredCount ?? (event?.registeredUsers?.length || 0);
+  const baseCount = Math.max(100, Math.floor(rawCount / 100) * 100);
+  const displayRegisteredCount = `${baseCount}+`;
+
   const imageContainerRef = useRef(null);
   const scrollViewRef = useRef(null);
 
   useEffect(() => {
     const fetchEvent = async () => {
-      if (!event) {
-        try {
-          const docRef = doc(db, 'event', id);
-          const docSnap = await getDoc(docRef);
-          if (docSnap.exists()) {
-            setEvent(docSnap.data());
-          }
-        } catch (error) {
-          console.error("Error fetching event:", error);
-        } finally {
+      // 1. Check IndexedDB device storage first (0ms load time, 0 server reads)
+      try {
+        const cached = await getCachedEventDetail(id);
+        if (cached) {
+          setEvent(cached);
+          setCurrentLayoutImages(cached.layoutImages || []);
+          setCurrentKeyviewImage(cached.imageLink || '');
           setLoadingEvent(false);
         }
+      } catch {
+        /* ignore cache read error */
+      }
+
+      if (user) {
+        getCachedUserRegistration(id, user.uid).then((res) => {
+          if (res !== null) setUserRegState(res);
+        }).catch(() => {});
+        getCachedTreasureHuntOptIn(id, user.uid).then((res) => {
+          if (res !== null) setUserJoinedHunt(res);
+        }).catch(() => {});
+      }
+
+      try {
+        const docRef = doc(db, 'event', id);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setEvent(data);
+          cacheEventDetail(id, data);
+          setCurrentLayoutImages(data.layoutImages || []);
+          setCurrentKeyviewImage(data.imageLink || '');
+          setFormData({
+            eventName: data.eventName || '', eventHostest: data.eventHostest || '',
+            setUpDate: data.setUpDate || '', eventDateStart: data.eventDateStart || '',
+            eventDateEnd: data.eventDateEnd || '', CleanUpDate: data.CleanUpDate || '',
+            eventLocation: data.eventLocation || '', PIC: data.PIC || '',
+            note: data.note || '', attendees: data.attendees || 0,
+            imageLink: data.imageLink || '', layoutImages: data.layoutImages || []
+          });
+        }
+      } catch (error) {
+        console.error("Error fetching event:", error);
+      } finally {
+        setLoadingEvent(false);
       }
     };
     fetchEvent();
-  }, [id, event]);
+  }, [id, user]);
 
-  // Keep a local state for the images to show updates immediately
-  const [currentLayoutImages, setCurrentLayoutImages] = useState(event?.layoutImages || []);
-  const [currentKeyviewImage, setCurrentKeyviewImage] = useState(event?.imageLink || '');
-
-  const [formData, setFormData] = useState({
-    eventName: '',
-    eventHostest: '',
-    setUpDate: '',
-    eventDateStart: '',
-    eventDateEnd: '',
-    CleanUpDate: '',
-    eventLocation: '',
-    PIC: '',
-    note: '',
-    attendees: 0,
-    imageLink: '',
-    layoutImages: []
-  });
-
+  // Load assignments for this event (moved above early return to satisfy Rules of Hooks)
   useEffect(() => {
-    if (event) {
-      setCurrentLayoutImages(event.layoutImages || []);
-      setCurrentKeyviewImage(event.imageLink || '');
-      setFormData({
-        eventName: event.eventName || '', eventHostest: event.eventHostest || '',
-        setUpDate: event.setUpDate || '', eventDateStart: event.eventDateStart || '',
-        eventDateEnd: event.eventDateEnd || '', CleanUpDate: event.CleanUpDate || '',
-        eventLocation: event.eventLocation || '', PIC: event.PIC || '',
-        note: event.note || '', attendees: event.attendees || 0,
-        imageLink: event.imageLink || '', layoutImages: event.layoutImages || []
-      });
-    }
-  }, [event]);
+    if (!id) return;
+    getBrandsForEvent(id)
+      .then((data) => setAssignedBrands(data))
+      .catch((err) => console.error('Error loading brand assignments:', err))
+      .finally(() => setLoadingBrands(false));
+  }, [id]);
+
+  // Render QR codes into canvas elements whenever treasure holders change (moved above early return to satisfy Rules of Hooks)
+  useEffect(() => {
+    const treasureHolders = assignedBrands.filter((a) => a.isTreasureHolder);
+    treasureHolders.forEach((a) => {
+      const canvas = qrCanvasRefs.current[a.combinedId];
+      if (canvas) {
+        QRCode.toCanvas(canvas, a.combinedId, { width: 180, margin: 1 }, (err) => {
+          if (err) console.error('QR generation error:', err);
+        });
+      }
+    });
+  }, [assignedBrands]);
 
   if (loadingEvent) {
     return <div style={{ display: 'flex', justifyContent: 'center', marginTop: '50px' }}>{t('loading')}</div>;
@@ -131,7 +183,7 @@ function EventDetail({ user }) {
       setIsUploading(true);
       const newImageUrl = await uploadEventImageAndUpdate(file, id);
       setCurrentLayoutImages(prev => [...prev, newImageUrl]);
-    } catch (error) {
+    } catch {
       alert("Image upload failed. See console for details.");
     } finally {
       setIsUploading(false);
@@ -145,33 +197,104 @@ function EventDetail({ user }) {
       return;
     }
 
+    if (isRegistered) {
+      // Un-register directly
+      const eventRef = doc(db, 'event', id);
+      try {
+        await updateDoc(eventRef, {
+          registeredUsers: arrayRemove(user.uid),
+          registeredCount: increment(-1)
+        });
+        setEvent(prev => {
+          const currentCount = prev.registeredCount ?? (prev.registeredUsers?.length || 0);
+          return {
+            ...prev,
+            registeredCount: Math.max(0, currentCount - 1),
+            registeredUsers: (prev.registeredUsers || []).filter(uid => uid !== user.uid)
+          };
+        });
+        setUserRegState(false);
+        setUserJoinedHunt(false);
+        cacheUserRegistration(id, user.uid, false);
+        cacheTreasureHuntOptIn(id, user.uid, false);
+        alert('You have unregistered from the event.');
+      } catch (error) {
+        console.error("Error unregistering:", error);
+        alert("There was an issue. Please try again.");
+      }
+    } else {
+      // Show registration modal with treasure hunt option
+      setJoinTreasureHunt(treasureBrands.length > 0);
+      setShowRegModal(true);
+    }
+  };
+
+  const handleConfirmRegister = async () => {
     const eventRef = doc(db, 'event', id);
+    setShowRegModal(false);
 
     try {
-      if (isRegistered) {
-        // Un-register
-        await updateDoc(eventRef, {
-          registeredUsers: arrayRemove(user.uid)
-        });
-        setEvent(prev => ({ ...prev, registeredUsers: prev.registeredUsers.filter(uid => uid !== user.uid) }));
-        alert('You have unregistered from the event.');
+      await updateDoc(eventRef, {
+        registeredUsers: arrayUnion(user.uid),
+        registeredCount: increment(1)
+      });
+      setEvent(prev => {
+        const currentCount = prev.registeredCount ?? (prev.registeredUsers?.length || 0);
+        return {
+          ...prev,
+          registeredCount: currentCount + 1,
+          registeredUsers: [...(prev.registeredUsers || []), user.uid]
+        };
+      });
+      setUserRegState(true);
+      cacheUserRegistration(id, user.uid, true);
+
+      // Create treasure hunt ticket if opted in and there are brands
+      if (joinTreasureHunt && treasureBrands.length > 0) {
+        setUserJoinedHunt(true);
+        cacheTreasureHuntOptIn(id, user.uid, true);
+        try {
+          const ticketData = await getOrCreateStampTicket(id, user.uid, event.eventName, treasureBrands);
+          const ticketId = stampKey(id, user.uid);
+          cacheStampTicket(ticketId, ticketData);
+        } catch (err) {
+          console.error('Error creating stamp ticket:', err);
+        }
       } else {
-        // Register
-        await updateDoc(eventRef, {
-          registeredUsers: arrayUnion(user.uid)
-        });
-        setEvent(prev => ({ ...prev, registeredUsers: [...(prev.registeredUsers || []), user.uid] }));
-        alert('You have successfully registered for the event!');
+        cacheTreasureHuntOptIn(id, user.uid, false);
       }
-      // Invalidate cache to reflect attendee count changes if displayed elsewhere
-      sessionStorage.removeItem('events_cache');
+
+      alert(joinTreasureHunt && treasureBrands.length > 0
+        ? 'Registered! Your Treasure Hunt card is ready below.'
+        : 'You have successfully registered for the event!');
     } catch (error) {
-      console.error("Error updating registration:", error);
-      alert("There was an issue updating your registration. Please try again.");
+      console.error("Error registering:", error);
+      alert("There was an issue. Please try again.");
+    }
+  };
+
+  const handleJoinTreasureHuntDirectly = async () => {
+    if (!user) return;
+    setUserJoinedHunt(true);
+    cacheTreasureHuntOptIn(id, user.uid, true);
+    try {
+      const ticketData = await getOrCreateStampTicket(id, user.uid, event.eventName, treasureBrands);
+      const ticketId = stampKey(id, user.uid);
+      cacheStampTicket(ticketId, ticketData);
+      alert('Joined! Your Treasure Hunt card is ready below.');
+    } catch (err) {
+      console.error('Error creating stamp ticket:', err);
+      alert('Failed to start Treasure Hunt. Please try again.');
+      setUserJoinedHunt(false);
+      cacheTreasureHuntOptIn(id, user.uid, false);
     }
   };
 
   const handleKeyviewImageUpload = async (e) => {
+    if (!canEdit) {
+      alert('Unauthorized: Only Admin and Manager roles can update keyview image.');
+      return;
+    }
     const file = e.target.files[0];
     if (!file) return;
 
@@ -179,7 +302,7 @@ function EventDetail({ user }) {
       setIsUploadingKeyview(true);
       const newImageUrl = await uploadKeyviewImageAndUpdate(file, id);
       setCurrentKeyviewImage(newImageUrl);
-    } catch (error) {
+    } catch {
       alert("Keyview image upload failed. See console for details.");
     } finally {
       setIsUploadingKeyview(false);
@@ -193,28 +316,36 @@ function EventDetail({ user }) {
   };
 
   const handleKeyviewUploadModal = async (e) => {
+    if (!canEdit) {
+      alert('Unauthorized: Only Admin and Manager roles can update keyview image.');
+      return;
+    }
     const file = e.target.files[0];
     if (!file) return;
     setIsUploadingKeyviewModal(true);
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, imageLink: url }));
-    } catch (err) {
+    } catch {
       alert("Keyview image upload failed.");
     } finally {
       setIsUploadingKeyviewModal(false);
       e.target.value = ''; // reset input
     }
   };
-
+  
   const handleLayoutUploadModal = async (e) => {
+    if (!canEdit) {
+      alert('Unauthorized: Only Admin and Manager roles can upload layout images.');
+      return;
+    }
     const file = e.target.files[0];
     if (!file) return;
     setIsUploadingLayoutModal(true);
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, layoutImages: [...prev.layoutImages, url] }));
-    } catch (err) {
+    } catch {
       alert("Layout image upload failed.");
     } finally {
       setIsUploadingLayoutModal(false);
@@ -223,11 +354,70 @@ function EventDetail({ user }) {
   };
 
   const removeLayoutImageModal = (indexToRemove) => {
+    if (!canEdit) return;
     setFormData(prev => ({ ...prev, layoutImages: prev.layoutImages.filter((_, index) => index !== indexToRemove) }));
+  };
+
+  const handleDeleteLayoutImage = async (indexToDelete) => {
+    if (!canEdit) {
+      alert('Unauthorized: Only Admin and Manager roles can delete layout images.');
+      return;
+    }
+    if (!window.confirm("Are you sure you want to delete this layout picture?")) return;
+    const updatedImages = currentLayoutImages.filter((_, idx) => idx !== indexToDelete);
+    try {
+      const eventRef = doc(db, 'event', id);
+      await updateDoc(eventRef, { layoutImages: updatedImages });
+      setCurrentLayoutImages(updatedImages);
+      setEvent(prev => ({ ...prev, layoutImages: updatedImages }));
+      setFormData(prev => ({ ...prev, layoutImages: updatedImages }));
+      if (fullscreenImageIndex === indexToDelete) {
+        setFullscreenImage(null);
+        setFullscreenImageIndex(null);
+      }
+      alert('Layout image deleted successfully.');
+    } catch (error) {
+      console.error('Failed to delete layout image:', error);
+      alert('Failed to delete layout image.');
+    }
+  };
+
+  const handleReplaceLayoutImage = async (indexToReplace, file) => {
+    if (!canEdit) {
+      alert('Unauthorized: Only Admin and Manager roles can update layout images.');
+      return;
+    }
+    if (!file) return;
+    try {
+      setIsUploading(true);
+      const newUrl = await uploadImageToImgBB(file);
+      const updatedImages = [...currentLayoutImages];
+      const oldItem = updatedImages[indexToReplace];
+      if (typeof oldItem === 'object' && oldItem !== null) {
+        updatedImages[indexToReplace] = { ...oldItem, url: newUrl };
+      } else {
+        updatedImages[indexToReplace] = newUrl;
+      }
+      const eventRef = doc(db, 'event', id);
+      await updateDoc(eventRef, { layoutImages: updatedImages });
+      setCurrentLayoutImages(updatedImages);
+      setEvent(prev => ({ ...prev, layoutImages: updatedImages }));
+      setFormData(prev => ({ ...prev, layoutImages: updatedImages }));
+      alert('Layout image updated successfully!');
+    } catch (error) {
+      console.error('Failed to replace layout image:', error);
+      alert('Failed to update layout image.');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleUpdateSubmit = async (e) => {
     e.preventDefault();
+    if (!canEdit) {
+      alert('Unauthorized: Only Admin and Manager roles can update event details.');
+      return;
+    }
     
     // Manual validation to ensure the form doesn't fail silently
     if (!formData.eventName || !formData.eventHostest || !formData.eventDateStart || !formData.eventLocation) {
@@ -242,14 +432,9 @@ function EventDetail({ user }) {
       setCurrentKeyviewImage(formData.imageLink);
       setCurrentLayoutImages(formData.layoutImages);
       setEvent(prev => ({ ...prev, ...formData }));
-      sessionStorage.removeItem('events_cache');
       setShowUpdateModal(false);
     } catch (error) {
-      if (error.code === 'unavailable' || error.message.includes('offline')) {
-        alert('Failed to connect to Firebase. You appear to be offline or a browser extension is blocking the connection.');
-      } else {
-        alert('Failed to update event: ' + error.message);
-      }
+      handleFirebaseError(error, 'update event');
     } finally {
       setIsSaving(false);
     }
@@ -261,97 +446,124 @@ function EventDetail({ user }) {
     }
     try {
       await deleteEventFromFirestore(id);
-      sessionStorage.removeItem('events_cache');
       alert('Event deleted successfully!');
       navigate('/events');
     } catch (error) {
-      if (error.code === 'unavailable' || error.message.includes('offline')) {
-        alert('Failed to connect to Firebase. You appear to be offline or a browser extension is blocking the connection.');
-      } else {
-        alert('Failed to delete event: ' + error.message);
-      }
+      handleFirebaseError(error, 'delete event');
     }
   };
 
-  const handleBrandLogoUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setIsUploadingBrandLogo(true);
+
+
+  const handleBrandAssigned = (assignmentOrArray) => {
+    if (Array.isArray(assignmentOrArray)) {
+      setAssignedBrands((prev) => [...prev, ...assignmentOrArray]);
+    } else {
+      setAssignedBrands((prev) => [...prev, assignmentOrArray]);
+    }
+  };
+
+  const handleExportAssignedBrands = async () => {
+    if (assignedBrands.length === 0) {
+      alert('No brands assigned to this event yet.');
+      return;
+    }
+    const XLSX = await import('xlsx');
+    const rows = assignedBrands.map((a) => ({
+      'Brand ID': a.brandId,
+      'Brand Name': a.brandName,
+      'Rank': a.rank,
+      'Booth Position': a.position || '',
+      'Treasure Holder': a.isTreasureHolder ? 'Yes' : 'No',
+      'Field of Work': a.fieldOfWork || '',
+      'Assigned At': a.assignedAt ? new Date(a.assignedAt).toLocaleString() : '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 12 },
+      { wch: 25 },
+      { wch: 15 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 25 },
+      { wch: 22 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Assigned Brands');
+    const safeEventName = (event?.eventName || 'Event').replace(/[/\\?%*:|"<>]/g, '_');
+    XLSX.writeFile(wb, `${safeEventName}_Assigned_Brands.xlsx`);
+  };
+
+  const handleRemoveAssignment = async (combinedId) => {
+    if (!window.confirm('Remove this brand from the event?')) return;
     try {
-      const url = await uploadImageToImgBB(file);
-      setBrandFormData(prev => ({ ...prev, logo: url }));
+      await removeAssignment(combinedId);
+      setAssignedBrands((prev) => prev.filter((a) => a.combinedId !== combinedId));
     } catch (err) {
-      alert("Brand logo upload failed.");
-    } finally {
-      setIsUploadingBrandLogo(false);
-      e.target.value = '';
+      alert('Failed to remove brand: ' + err.message);
     }
   };
 
-  const handleBrandFormChange = (e) => {
-    const { name, value } = e.target;
-    setBrandFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const openBrandModal = (brand = null, index = null) => {
-    if (brand) {
-      setBrandFormData(brand);
-      setEditingBrandIndex(index);
-    } else {
-      setBrandFormData({ id: '', name: '', logo: '', rank: 'silver', position: '' });
-      setEditingBrandIndex(null);
-    }
-    setShowBrandModal(true);
-  };
-
-  const handleBrandSubmit = async (e) => {
-    e.preventDefault();
-    if (!brandFormData.name || !brandFormData.logo) {
-      alert("Please provide a brand name and logo.");
-      return;
-    }
-
-    const currentBrands = event.brands || [];
-    let updatedBrands;
-
-    if (editingBrandIndex !== null) {
-      // Editing existing brand
-      updatedBrands = [...currentBrands];
-      updatedBrands[editingBrandIndex] = brandFormData;
-    } else {
-      // Adding new brand
-      const newBrand = { ...brandFormData, id: generateId(9) };
-      updatedBrands = [...currentBrands, newBrand];
-    }
-
+  const handleUpdateAssignmentRank = async (combinedId, newRank) => {
     try {
-      const eventRef = doc(db, 'event', id);
-      await updateDoc(eventRef, { brands: updatedBrands });
-      setEvent(prev => ({ ...prev, brands: updatedBrands }));
-      setShowBrandModal(false);
-      sessionStorage.removeItem('events_cache');
-    } catch (error) {
-      console.error("Error saving brand:", error);
-      alert("Failed to save brand information.");
+      await updateAssignment(combinedId, { rank: newRank });
+      setAssignedBrands((prev) =>
+        prev.map((a) => a.combinedId === combinedId ? { ...a, rank: newRank } : a)
+      );
+    } catch (err) {
+      console.error('Failed to update rank:', err);
     }
   };
 
-  const handleBrandDelete = async (brandIdToDelete) => {
-    if (!window.confirm("Are you sure you want to delete this brand?")) {
-      return;
-    }
-
-    const updatedBrands = (event.brands || []).filter(brand => brand.id !== brandIdToDelete);
-
+  const handleUpdateAssignmentPosition = async (combinedId, newPosition) => {
     try {
-      const eventRef = doc(db, 'event', id);
-      await updateDoc(eventRef, { brands: updatedBrands });
-      setEvent(prev => ({ ...prev, brands: updatedBrands }));
-      sessionStorage.removeItem('events_cache');
-      alert("Brand deleted successfully.");
-    } catch (error) {
-      console.error("Error deleting brand:", error);
-      alert("Failed to delete brand.");
+      await updateAssignment(combinedId, { position: newPosition });
+      setAssignedBrands((prev) =>
+        prev.map((a) => a.combinedId === combinedId ? { ...a, position: newPosition } : a)
+      );
+      setSelectedBrandDetail((prev) =>
+        prev && prev.combinedId === combinedId ? { ...prev, position: newPosition } : prev
+      );
+      return true;
+    } catch (err) {
+      console.error('Failed to update position:', err);
+      alert('Failed to update position: ' + err.message);
+      return false;
+    }
+  };
+
+  const handleToggleTreasureHolder = async (combinedId, current) => {
+    const next = !current;
+    try {
+      await setTreasureHolder(combinedId, next);
+      setAssignedBrands((prev) =>
+        prev.map((a) => a.combinedId === combinedId ? { ...a, isTreasureHolder: next } : a)
+      );
+    } catch (err) {
+      alert('Failed to update Treasure Holder status: ' + err.message);
+    }
+  };
+
+
+
+  const handleDownloadQR = (combinedId, brandName) => {
+    const canvas = qrCanvasRefs.current[combinedId];
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = 'QR-' + brandName.replace(/\s+/g, '_') + '-' + combinedId + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  };
+
+  const handleReloadQR = (combinedId) => {
+    const canvas = qrCanvasRefs.current[combinedId];
+    if (canvas) {
+      QRCode.toCanvas(canvas, combinedId, { width: 180, margin: 1 }, (err) => {
+        if (err) {
+          console.error('QR generation error:', err);
+          alert('Failed to generate QR code.');
+        }
+      });
     }
   };
 
@@ -387,7 +599,6 @@ function EventDetail({ user }) {
     try {
       const eventRef = doc(db, 'event', id);
       await updateDoc(eventRef, { layoutImages: updatedLayoutImages });
-      sessionStorage.removeItem('events_cache');
     } catch (error) {
       console.error("Failed to save pin:", error);
       alert("Could not save the new pin. Please try again.");
@@ -421,7 +632,6 @@ function EventDetail({ user }) {
     try {
       const eventRef = doc(db, 'event', id);
       await updateDoc(eventRef, { layoutImages: updatedLayoutImages });
-      sessionStorage.removeItem('events_cache');
     } catch (error) {
       console.error("Failed to delete pin:", error);
       alert("Could not delete the pin. Please try again.");
@@ -435,7 +645,7 @@ function EventDetail({ user }) {
     setDraggingPinIndex(index);
   };
 
-  const handleMouseUp = async (e) => {
+  const handleMouseUp = async () => {
     if (draggingPinIndex === null) return;
     
     setDraggingPinIndex(null);
@@ -444,7 +654,6 @@ function EventDetail({ user }) {
     try {
       const eventRef = doc(db, 'event', id);
       await updateDoc(eventRef, { layoutImages: currentLayoutImages });
-      sessionStorage.removeItem('events_cache');
     } catch (error) {
       console.error("Failed to save pin position:", error);
       alert("Could not save the new pin position. Please try again.");
@@ -527,18 +736,32 @@ function EventDetail({ user }) {
               </div>
             </div>
           )}
-          <button 
-            style={{
-              position: 'absolute', top: '20px', right: '20px',
-              background: 'rgba(255,255,255,0.2)', color: '#fff',
-              border: 'none', borderRadius: '50%', width: '40px', height: '40px',
-              fontSize: '20px', cursor: 'pointer', display: 'flex',
-              justifyContent: 'center', alignItems: 'center'
-            }}
-            onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); setFullscreenImageIndex(null); }}
-          > 
-            ✕
-          </button>
+          <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', gap: '10px', alignItems: 'center', zIndex: 10 }}>
+            {canEdit && fullscreenImageIndex !== null && (
+              <button
+                style={{
+                  background: 'rgba(220, 38, 38, 0.85)', color: '#fff',
+                  border: 'none', borderRadius: '8px', padding: '8px 14px',
+                  fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '6px'
+                }}
+                onClick={(e) => { e.stopPropagation(); handleDeleteLayoutImage(fullscreenImageIndex); }}
+              >
+                🗑️ Delete Layout
+              </button>
+            )}
+            <button 
+              style={{
+                background: 'rgba(255,255,255,0.2)', color: '#fff',
+                border: 'none', borderRadius: '50%', width: '40px', height: '40px',
+                fontSize: '20px', cursor: 'pointer', display: 'flex',
+                justifyContent: 'center', alignItems: 'center'
+              }}
+              onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); setFullscreenImageIndex(null); }}
+            > 
+              ✕
+            </button>
+          </div>
           <div
             ref={imageContainerRef}
             onClick={(e) => { if (draggingPinIndex === null) handleFullscreenClick(e); }}
@@ -592,12 +815,16 @@ function EventDetail({ user }) {
         </div>
       )}
 
-      <button onClick={() => navigate(-1)} className="counter" style={{ alignSelf: 'flex-start', marginBottom: '16px' }}>
+      <button 
+        onClick={() => navigate(-1)} 
+        className="btn btn-ghost btn-sm"
+        style={{ alignSelf: 'flex-start', marginBottom: 'var(--space-3)' }}
+      >
         &larr; {t('back')}
       </button>
       <div className="scroll-view" ref={scrollViewRef}>
         {/* Main Event Keyview Image */}
-        <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', borderRadius: '12px', overflow: 'hidden' }}>
+        <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', borderRadius: 'var(--radius-xl)', overflow: 'hidden', boxShadow: 'var(--shadow-md)' }}>
           <img 
             src={currentKeyviewImage} 
             alt={event.eventName} 
@@ -616,11 +843,11 @@ function EventDetail({ user }) {
                 onClick={() => keyviewFileInputRef.current.click()}
                 disabled={isUploadingKeyview}
                 style={{
-                  position: 'absolute', bottom: '12px', right: '12px',
-                  padding: '8px 16px', borderRadius: '8px',
+                  position: 'absolute', bottom: 'var(--space-3)', right: 'var(--space-3)',
+                  padding: 'var(--space-2) var(--space-4)', borderRadius: 'var(--radius-md)',
                   backgroundColor: 'rgba(0,0,0,0.7)', color: 'white',
                   border: '1px solid rgba(255,255,255,0.4)', cursor: 'pointer',
-                  fontSize: '0.9rem', fontWeight: '500', backdropFilter: 'blur(4px)'
+                  fontSize: 'var(--font-sm)', fontWeight: '500', backdropFilter: 'blur(8px)'
                 }}
               >
                 {isUploadingKeyview ? 'Uploading...' : 'Change Keyview'}
@@ -629,78 +856,379 @@ function EventDetail({ user }) {
           )}
         </div>
 
-        <div style={{ marginTop: '16px', textAlign: 'left' }}>
-          <h1 style={{ fontSize: '2rem', margin: '0 0 8px 0' }}>{event.eventName}</h1>
-          <p style={{ fontSize: '1.1rem', marginBottom: '8px', opacity: 0.8 }}>Hosted by: {event.eventHostest}</p>
-          <p style={{ fontSize: '1rem', color: 'var(--accent)', fontWeight: '500', marginBottom: '8px' }}>
+        <div style={{ marginTop: 'var(--space-4)', textAlign: 'left' }}>
+          <h1 style={{ fontSize: 'var(--font-3xl)', margin: '0 0 var(--space-2) 0' }}>{event.eventName}</h1>
+          <p style={{ fontSize: 'var(--font-lg)', marginBottom: 'var(--space-2)', color: 'var(--text-secondary)' }}>Hosted by: {event.eventHostest}</p>
+          <p style={{ fontSize: 'var(--font-md)', color: 'var(--accent)', fontWeight: '600', marginBottom: 'var(--space-3)' }}>
             {event.eventDateStart} to {event.eventDateEnd}
           </p>
-          <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>Location:</strong> {event.eventLocation}</p>
-          <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>Setup:</strong> {event.setUpDate} | <strong>Cleanup:</strong> {event.CleanUpDate}</p>
-          <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>PIC:</strong> {event.PIC}</p>
-          <p style={{ fontSize: '0.9rem', marginBottom: '4px' }}><strong>Registered:</strong> {registeredCount} / {event.attendees > 0 ? event.attendees : '∞'}</p>
-          <p style={{ fontSize: '0.9rem', marginBottom: '24px' }}><strong>Note:</strong> {event.note}</p>
+          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>Location:</strong> {event.eventLocation}</p>
+          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>Setup:</strong> {event.setUpDate} | <strong>Cleanup:</strong> {event.CleanUpDate}</p>
+          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>PIC:</strong> {event.PIC}</p>
+          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>Registered:</strong> {displayRegisteredCount} / {event.attendees > 0 ? event.attendees : '∞'}</p>
+          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-4)', color: 'var(--text-secondary)' }}><strong>Note:</strong> {event.note}</p>
+          
           <button 
             onClick={handleRegister} 
-            className="counter" 
-            style={{ width: '100%', backgroundColor: isRegistered ? '#dc3545' : 'var(--accent)', color: 'white' }}
+            className={`btn ${isRegistered ? 'btn-danger' : 'btn-primary'}`}
+            style={{ width: '100%', padding: 'var(--space-3)', fontSize: 'var(--font-md)' }}
           >
             {user ? (isRegistered ? t('unregisterFromEvent') : t('registerForEvent')) : t('loginToRegister')}
           </button>
 
           {/* Admin Action Buttons */}
           {canEdit && (
-            <div className="btn-group" style={{marginTop: '16px', marginBottom: 0}}>
-              <button onClick={() => setShowUpdateModal(true)} className="btn btn-warning btn-flex" style={{padding: '10px'}}>Update Event</button>
-              <button onClick={handleDeleteEvent} className="btn btn-danger btn-flex" style={{padding: '10px'}}>Delete Event</button>
+            <div className="btn-group" style={{ marginTop: 'var(--space-3)', marginBottom: 0 }}>
+              <button onClick={() => setShowUpdateModal(true)} className="btn btn-warning btn-flex">Update Event</button>
+              <button onClick={handleDeleteEvent} className="btn btn-danger btn-flex">Delete Event</button>
             </div>
           )}
         </div>
         
-        {/* Brands Section */}
-        <div style={{ marginTop: '24px', textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h2 style={{ fontSize: '1.5rem', margin: 0 }}>{t('attendingBrands')}</h2>
+        {/* Brands Section — powered by global assignments */}
+        <div style={{ marginTop: 'var(--space-6)', textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+            <h2 style={{ fontSize: 'var(--font-xl)', margin: 0 }}>{t('attendingBrands')}</h2>
             {canEdit && (
-              <button onClick={() => openBrandModal()} className="btn btn-primary" style={{padding: '6px 12px'}}>
-                {t('addEvent')}
-              </button>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {(event.brands && event.brands.length > 0) ? (
-              event.brands.map((brand, index) => (
-                <div key={brand.id} className="touchable-card" style={{ flexDirection: 'row', alignItems: 'center', padding: '12px', gap: '12px' }}>
-                  <img src={brand.logo} alt={brand.name} style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', backgroundColor: '#fff' }} />
-                  <div style={{ flex: 1 }}>
-                    <h4 style={{ margin: 0, fontSize: '1.1rem' }}>{brand.name}</h4>
-                    <p style={{ margin: '2px 0', fontSize: '0.9rem', opacity: 0.8 }}>Rank: <span style={{ textTransform: 'capitalize', fontWeight: '500' }}>{brand.rank}</span></p>
-                    <p style={{ margin: '2px 0', fontSize: '0.9rem', opacity: 0.8 }}>Position: {brand.position}</p>
-                  </div>
-                  {canEdit && (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button onClick={() => openBrandModal(brand, index)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>✏️</button>
-                      <button onClick={() => handleBrandDelete(brand.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' }}>🗑️</button>
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div style={{ width: '100%', padding: '32px 0', textAlign: 'center', color: 'var(--text-h)', backgroundColor: 'var(--border)', borderRadius: '12px' }}>
-                No brands listed for this event yet.
+              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => downloadBrandAssignmentTemplate(globalBrands)}
+                  className="btn btn-secondary btn-sm"
+                  title="Download Excel template for importing brands"
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <span>📄 Download Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignModalTab('excel');
+                    setShowAssignBrandModal(true);
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  title="Import brands using Excel"
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <span>📥 Import Excel</span>
+                </button>
+                {assignedBrands.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleExportAssignedBrands}
+                    className="btn btn-secondary btn-sm"
+                    title="Export currently assigned brands to Excel"
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <span>📤 Export Brands</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignModalTab('single');
+                    setShowAssignBrandModal(true);
+                  }}
+                  className="btn btn-primary btn-sm"
+                >
+                  + Assign Brand
+                </button>
               </div>
             )}
           </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            {loadingBrands && <p style={{ color: 'var(--text-muted)' }}>Loading brands...</p>}
+            {!loadingBrands && assignedBrands.length === 0 && (
+              <EmptyState icon="🏢" message="No brands assigned to this event yet." />
+            )}
+            {assignedBrands.map((assignment) => (
+              <div
+                key={assignment.combinedId}
+                onClick={() => setSelectedBrandDetail(assignment)}
+                className="touchable-card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: 'var(--space-2) var(--space-3)',
+                  cursor: 'pointer',
+                  borderRadius: 'var(--radius-md)',
+                  gap: 'var(--space-3)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0, flex: 1 }}>
+                  {/* Logo */}
+                  <BrandLogo url={assignment.logoUrl} name={assignment.brandName} size={36} />
+                  {/* Name and Badges */}
+                  <div style={{ minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <h4 style={{ margin: 0, fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {assignment.brandName}
+                    </h4>
+                    <span className="badge badge-solid" style={{ fontSize: '10px', textTransform: 'capitalize' }}>
+                      {assignment.rank}
+                    </span>
+                    {assignment.isTreasureHolder && (
+                      <span className="badge badge-warning" style={{ fontSize: '10px' }}>⭐ Treasure</span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}>
+                  {assignment.position ? (
+                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Pos: {assignment.position}</span>
+                  ) : (
+                    canEdit && <span style={{ fontSize: '10px', color: 'var(--text-muted)', border: '1px dashed var(--border)', padding: '1px 5px', borderRadius: '4px' }}>+ Position</span>
+                  )}
+                  <span style={{ color: 'var(--text-muted)', fontSize: 'var(--font-md)' }}>›</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
+        {/* Brand Detail Modal */}
+        {selectedBrandDetail && (
+          <div style={modalOverlayStyle({ zIndex: 9999, background: 'rgba(0, 0, 0, 0.75)', blur: 'blur(8px)' })}>
+            <div className="modal-container" style={{ ...modalCardStyle({ maxWidth: '440px', shadow: 'var(--shadow-glow)' }), display: 'flex', flexDirection: 'column' }}>
+              {/* Modal Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                  <BrandLogo url={selectedBrandDetail.logoUrl} name={selectedBrandDetail.brandName} size={48} />
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 'var(--font-lg)' }}>{selectedBrandDetail.brandName}</h3>
+                    <p style={{ margin: 0, fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{selectedBrandDetail.fieldOfWork}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedBrandDetail(null)}
+                  className="btn btn-ghost"
+                  style={{ padding: '4px 8px', fontSize: 'var(--font-lg)', cursor: 'pointer' }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Details Content */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500' }}>Rank</span>
+                  {canEdit ? (
+                    <select
+                      aria-label="Edit brand rank"
+                      value={selectedBrandDetail.rank}
+                      onChange={async (e) => {
+                        const newRank = e.target.value;
+                        await handleUpdateAssignmentRank(selectedBrandDetail.combinedId, newRank);
+                        setSelectedBrandDetail(prev => ({ ...prev, rank: newRank }));
+                      }}
+                      style={{
+                        fontSize: 'var(--font-sm)', padding: '4px 8px', borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', cursor: 'pointer'
+                      }}
+                    >
+                      {['gold','silver','bronze','standard'].map((r) => (
+                        <option key={r} value={r} style={{ background: 'var(--bg-card-solid)', color: 'var(--text-primary)' }}>
+                          {r.charAt(0).toUpperCase() + r.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                      {selectedBrandDetail.rank}
+                    </span>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)', gap: 'var(--space-2)' }}>
+                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500', flexShrink: 0 }}>Position</span>
+                  {canEdit ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <input
+                        type="text"
+                        aria-label="Edit brand booth position"
+                        placeholder="e.g. A-12, Booth 3"
+                        value={editBrandPosition}
+                        onChange={(e) => {
+                          setEditBrandPosition(e.target.value);
+                          setBrandPositionSavedMsg(false);
+                        }}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter') {
+                            setSavingBrandPosition(true);
+                            const ok = await handleUpdateAssignmentPosition(selectedBrandDetail.combinedId, editBrandPosition.trim());
+                            setSavingBrandPosition(false);
+                            if (ok) {
+                              setBrandPositionSavedMsg(true);
+                              setTimeout(() => setBrandPositionSavedMsg(false), 2000);
+                            }
+                          }
+                        }}
+                        style={{
+                          fontSize: 'var(--font-sm)',
+                          padding: '4px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border)',
+                          background: 'var(--bg-input)',
+                          color: 'var(--text-primary)',
+                          width: '120px',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setSavingBrandPosition(true);
+                          const ok = await handleUpdateAssignmentPosition(selectedBrandDetail.combinedId, editBrandPosition.trim());
+                          setSavingBrandPosition(false);
+                          if (ok) {
+                            setBrandPositionSavedMsg(true);
+                            setTimeout(() => setBrandPositionSavedMsg(false), 2000);
+                          }
+                        }}
+                        disabled={savingBrandPosition || editBrandPosition.trim() === (selectedBrandDetail.position || '')}
+                        className="btn btn-primary btn-sm"
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '11px',
+                          minWidth: '46px',
+                          opacity: editBrandPosition.trim() === (selectedBrandDetail.position || '') ? 0.5 : 1,
+                        }}
+                      >
+                        {savingBrandPosition ? '...' : (brandPositionSavedMsg ? '✓' : 'Save')}
+                      </button>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)' }}>
+                      {selectedBrandDetail.position || '—'}
+                    </span>
+                  )}
+                </div>
+
+                {canEdit && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500' }}>Brand ID</span>
+                      <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                        {selectedBrandDetail.brandId}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' }}>
+                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500' }}>Assignment ID</span>
+                      <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                        {selectedBrandDetail.combinedId}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* QR code section — ONLY for admin/manager */}
+              {canEdit && selectedBrandDetail.isTreasureHolder && (
+                <div style={{
+                  padding: 'var(--space-4)', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)'
+                }}>
+                  <canvas
+                    ref={(el) => {
+                      if (el) {
+                        qrCanvasRefs.current[selectedBrandDetail.combinedId] = el;
+                        QRCode.toCanvas(el, selectedBrandDetail.combinedId, { width: 160, margin: 1 }, (err) => {
+                          if (err) console.error('QR modal draw error:', err);
+                        });
+                      }
+                    }}
+                    style={{ borderRadius: 'var(--radius-md)', background: '#fff', padding: '6px' }}
+                  />
+                  <div style={{ textAlign: 'center', width: '100%' }}>
+                    <p style={{ margin: '0 0 2px', fontSize: 'var(--font-xs)', fontWeight: '600' }}>QR Code — Treasure Holder</p>
+                    <p style={{ margin: '0 0 var(--space-2)', fontSize: '10px', color: 'var(--text-muted)' }}>Encodes: <code>{selectedBrandDetail.combinedId}</code></p>
+                    <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'center' }}>
+                      <button
+                        onClick={() => handleDownloadQR(selectedBrandDetail.combinedId, selectedBrandDetail.brandName)}
+                        className="btn btn-info btn-sm"
+                        style={{ fontSize: '10px', padding: '4px 8px' }}
+                      >
+                        ⬇ Download PNG
+                      </button>
+                      <button
+                        onClick={() => handleReloadQR(selectedBrandDetail.combinedId)}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '10px', padding: '4px 8px' }}
+                      >
+                        🔄 Reload QR
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Management Actions */}
+              {canEdit && (
+                <div style={{ display: 'flex', gap: 'var(--space-2)', borderTop: '1px solid var(--border)', paddingTop: 'var(--space-3)', marginTop: 'auto' }}>
+                  <button
+                    onClick={async () => {
+                      const next = !selectedBrandDetail.isTreasureHolder;
+                      await handleToggleTreasureHolder(selectedBrandDetail.combinedId, selectedBrandDetail.isTreasureHolder);
+                      setSelectedBrandDetail(prev => ({ ...prev, isTreasureHolder: next }));
+                    }}
+                    className={`btn btn-sm ${selectedBrandDetail.isTreasureHolder ? 'btn-warning' : 'btn-ghost'}`}
+                    style={{ flex: 1 }}
+                  >
+                    {selectedBrandDetail.isTreasureHolder ? '☆ Remove Treasure' : '⭐ Set Treasure'}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (window.confirm(`Remove ${selectedBrandDetail.brandName} from this event?`)) {
+                        await handleRemoveAssignment(selectedBrandDetail.combinedId);
+                        setSelectedBrandDetail(null);
+                      }
+                    }}
+                    className="btn btn-danger btn-sm"
+                    style={{ flex: 1 }}
+                  >
+                    🗑️ Remove Brand
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* If registered but not joined treasure hunt, show a join button */}
+        {user && isRegistered && !userJoinedHunt && treasureBrands.length > 0 && (
+          <div className="stamp-ticket" style={{ textAlign: 'center', padding: 'var(--space-5)' }}>
+            <h3 style={{ margin: '0 0 var(--space-2)' }}>🎫 Treasure Hunt Available</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--space-4)' }}>
+              Join the Treasure Hunt to collect stamps from brand booths and win prizes!
+            </p>
+            <button
+              onClick={handleJoinTreasureHuntDirectly}
+              className="btn btn-primary"
+              style={{ width: '100%', padding: 'var(--space-3)' }}
+            >
+              Start Treasure Hunt
+            </button>
+          </div>
+        )}
+
+        {/* Stamp Ticket — shown to registered users who joined treasure hunt */}
+        {user && isRegistered && userJoinedHunt && treasureBrands.length > 0 && (
+          <StampTicket
+            eventId={id}
+            eventName={event.eventName}
+            user={user}
+            currentUser={user}
+            brands={treasureBrands}
+          />
+        )}
+
         {/* Layout Images Section at the bottom */}
-        <div style={{ marginTop: '24px', textAlign: 'left' }}>
-          <h2 style={{ fontSize: '1.5rem', marginBottom: '16px' }}>{t('eventLayouts')}</h2>
+        <div style={{ marginTop: 'var(--space-6)', textAlign: 'left' }}>
+          <h2 style={{ fontSize: 'var(--font-xl)', marginBottom: 'var(--space-4)' }}>{t('eventLayouts')}</h2>
           
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
             {currentLayoutImages.length > 0 ? (
               currentLayoutImages.map((img, index) => (
-                <div key={index} style={{ position: 'relative', width: 'calc(50% - 6px)', paddingTop: 'calc((50% - 6px) * 9 / 16)', backgroundColor: 'var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                <div key={index} style={{ position: 'relative', width: 'calc(50% - 6px)', paddingTop: 'calc((50% - 6px) * 9 / 16)', backgroundColor: 'var(--bg-input)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border)' }}>
                   <img 
                     src={typeof img === 'string' ? img : img.url} 
                     alt={`Event Layout ${index + 1}`} 
@@ -709,12 +1237,46 @@ function EventDetail({ user }) {
                       setFullscreenImage(imageObject);
                       setFullscreenImageIndex(index);
                     }}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }} 
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }}
+                    loading="lazy"
+                    decoding="async"
                   />
+                  {canEdit && (
+                    <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '6px', zIndex: 5 }}>
+                      <label 
+                        onClick={(e) => e.stopPropagation()} 
+                        style={{
+                          background: 'rgba(0, 0, 0, 0.75)', border: '1px solid rgba(255, 255, 255, 0.3)',
+                          borderRadius: '6px', padding: '4px 8px', color: '#fff', fontSize: '11px',
+                          fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(4px)'
+                        }}
+                      >
+                        ✏️ Replace
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          onChange={(e) => handleReplaceLayoutImage(index, e.target.files[0])}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); handleDeleteLayoutImage(index); }}
+                        style={{
+                          background: 'rgba(220, 38, 38, 0.85)', border: 'none',
+                          borderRadius: '6px', padding: '4px 8px', color: '#fff', fontSize: '11px',
+                          fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(4px)'
+                        }}
+                        title="Delete layout picture"
+                      >
+                        🗑️ Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))
             ) : (
-              <div style={{ width: '100%', padding: '32px 0', textAlign: 'center', color: 'var(--text-h)', backgroundColor: 'var(--border)', borderRadius: '12px' }}>
+              <div style={{ width: '100%', padding: 'var(--space-6) 0', textAlign: 'center', color: 'var(--text-muted)', backgroundColor: 'var(--bg-input)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
                 No layout images available
               </div>
             )}
@@ -732,12 +1294,8 @@ function EventDetail({ user }) {
               <button 
                 onClick={() => fileInputRef.current.click()}
                 disabled={isUploading}
-                style={{
-                  padding: '8px 16px', borderRadius: '8px',
-                  backgroundColor: 'var(--accent)', color: '#fff',
-                  border: 'none', cursor: 'pointer',
-                  fontSize: '0.9rem', fontWeight: '500', width: '100%'
-                }}
+                className="btn btn-primary"
+                style={{ width: '100%' }}
               >
                 {isUploading ? 'Uploading...' : 'Add New Layout'}
               </button>
@@ -748,42 +1306,21 @@ function EventDetail({ user }) {
 
       <BackToTopButton scrollableRef={scrollViewRef} />
 
-      {/* Add/Update Brand Modal */}
-      {showBrandModal && (
-        <Modal isOpen={showBrandModal} onClose={() => setShowBrandModal(false)} title={editingBrandIndex !== null ? 'Update Brand' : 'Add Brand'}>
-          <h2 style={{ marginTop: '20px', marginBottom: '20px' }}>{editingBrandIndex !== null ? 'Update' : 'Add'} Brand</h2>
-          <form onSubmit={handleBrandSubmit} style={{ display: 'flex', flexDirection: 'column' }}>
-            <input name="name" placeholder="Brand Name" value={brandFormData.name} onChange={handleBrandFormChange} className="input-style" required />
-            <input name="position" placeholder="Position (e.g., Booth A1)" value={brandFormData.position} onChange={handleBrandFormChange} className="input-style" />
-            <label className="form-label">Rank</label>
-            <select name="rank" value={brandFormData.rank} onChange={handleBrandFormChange} className="input-style">
-              <option value="platinum">Platinum</option>
-              <option value="gold">Gold</option>
-              <option value="silver">Silver</option>
-            </select>
-
-            <label className="form-label form-label-bold">Brand Logo</label>
-            {brandFormData.logo && (
-              <div style={{ marginBottom: '8px', padding: '10px', border: '1px solid var(--border)', borderRadius: '8px', background: '#fff' }}>
-                <img src={brandFormData.logo} alt="Logo Preview" style={{ width: '100%', height: '100px', objectFit: 'contain' }} />
-              </div>
-            )}
-            <input type="file" accept="image/*" onChange={handleBrandLogoUpload} className="input-style" disabled={isUploadingBrandLogo} />
-            {isUploadingBrandLogo && <span className="upload-status">Uploading Logo...</span>}
-
-            <div className="btn-group">
-              <button type="button" onClick={() => setShowBrandModal(false)} className="btn btn-danger btn-flex">Cancel</button>
-              <button type="submit" className="btn btn-success btn-flex">
-                {editingBrandIndex !== null ? 'Save Changes' : 'Add Brand'}
-              </button>
-            </div>
-          </form>
-        </Modal>
+      {/* Assign Brand Modal */}
+      {showAssignBrandModal && event && (
+        <AssignBrandModal
+          event={event}
+          assignedBrandIds={assignedBrands.map((a) => a.combinedId)}
+          onClose={() => setShowAssignBrandModal(false)}
+          onAssigned={handleBrandAssigned}
+          user={user}
+          initialTab={assignModalTab}
+        />
       )}
 
       {/* Update Event Modal */}
       {showUpdateModal && (
-        <Modal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} title="Update Event">
+        <Modal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} title="Update Event"> {/* Modal itself can be memoized */}
           <EventForm
             formData={formData}
             onFormChange={handleFormChange}
@@ -798,6 +1335,80 @@ function EventDetail({ user }) {
             submitText="Save Changes"
           />
         </Modal>
+      )}
+
+      {/* Registration Modal — treasure hunt opt-in */}
+      {showRegModal && (
+        <div className="reg-modal-overlay" onClick={() => setShowRegModal(false)}>
+          <div className="reg-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="reg-modal__header">
+              <h2 className="reg-modal__title">Join Event</h2>
+              <button onClick={() => setShowRegModal(false)} className="reg-modal__close" aria-label="Close">✕</button>
+            </div>
+
+            <div className="reg-modal__body">
+              <div className="reg-modal__event-info">
+                <h3 style={{ margin: '0 0 4px', fontSize: 'var(--font-lg)' }}>{event.eventName}</h3>
+                <p style={{ margin: 0, fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
+                  {event.eventDateStart} · {event.eventLocation}
+                </p>
+              </div>
+
+              {/* Treasure Hunt toggle */}
+              {treasureBrands.length > 0 && (
+                <div
+                  className="reg-modal__hunt-toggle"
+                  onClick={() => setJoinTreasureHunt(!joinTreasureHunt)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setJoinTreasureHunt(!joinTreasureHunt); }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <div className="reg-modal__hunt-label">🎫 Join Treasure Hunt</div>
+                    <p className="reg-modal__hunt-desc">
+                      Visit {treasureBrands.length} brand booth{treasureBrands.length !== 1 ? 's' : ''}, scan QR codes, and collect stamps to win prizes!
+                    </p>
+                  </div>
+                  <div className={`reg-modal__switch ${joinTreasureHunt ? 'reg-modal__switch--on' : ''}`}>
+                    <div className="reg-modal__switch-thumb" />
+                  </div>
+                </div>
+              )}
+
+              {/* Preview brand slots */}
+              {joinTreasureHunt && treasureBrands.length > 0 && (
+                <div className="reg-modal__preview">
+                  <p style={{ margin: '0 0 8px', fontSize: 'var(--font-xs)', color: 'var(--text-muted)', textAlign: 'center' }}>
+                    Your stamp card will have {treasureBrands.length} slot{treasureBrands.length !== 1 ? 's' : ''}:
+                  </p>
+                  <div className="reg-modal__brands-row">
+                    {treasureBrands.slice(0, 6).map((b) => (
+                      <div key={b.combinedId} className="reg-modal__brand-chip">
+                        {b.logoUrl ? (
+                          <img src={b.logoUrl} alt={b.brandName} className="reg-modal__brand-logo" loading="lazy" />
+                        ) : (
+                          <span style={{ fontSize: '14px' }}>🏢</span>
+                        )}
+                      </div>
+                    ))}
+                    {treasureBrands.length > 6 && (
+                      <div className="reg-modal__brand-chip reg-modal__brand-more">
+                        +{treasureBrands.length - 6}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="reg-modal__footer">
+              <button onClick={() => setShowRegModal(false)} className="btn btn-secondary btn-flex">Cancel</button>
+              <button onClick={handleConfirmRegister} className="btn btn-primary btn-flex">
+                {joinTreasureHunt && treasureBrands.length > 0 ? '🎫 Register & Join Hunt' : 'Register'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

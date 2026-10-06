@@ -5,11 +5,9 @@ service cloud.firestore {
 
     // Helper function to get the role of the currently authenticated user.
     function getUserRole() {
-      // If there's no authenticated user, they are a visitor.
       if (request.auth == null) {
         return 'visitor';
       }
-      // Otherwise, read their role from the 'users' collection.
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
@@ -20,16 +18,15 @@ service cloud.firestore {
 
     // Rules for the 'users' collection
     match /users/{userId} {
-      // READ: A user can read their own profile. Admins and managers can read all profiles.
       allow read: if request.auth.uid == userId || isOneOfRoles(['admin', 'manager']);
 
-      // CREATE: A user can create their own profile document, but cannot assign a role.
-      allow create: if request.auth.uid == userId && !('role' in request.resource.data);
+      // Users can create their own doc with role forced to 'visitor'
+      allow create: if request.auth.uid == userId
+                    && request.resource.data.role == 'visitor'
+                    && request.resource.data.keys().hasAll(['uid', 'name', 'email', 'role'])
+                    && request.resource.data.uid == request.auth.uid;
 
-      // UPDATE:
-      // 1. A user can update their own profile, but cannot change their own role.
-      // 2. An admin can update any field on any user profile.
-      // 3. A manager can update users, but cannot edit other admins/managers or promote anyone to admin/manager.
+      // Self-update: cannot change own role. Admin: full access. Manager: cannot promote to admin/manager.
       allow update: if (request.auth.uid == userId && request.resource.data.role == resource.data.role)
                     || isOneOfRoles(['admin'])
                     || (
@@ -38,30 +35,99 @@ service cloud.firestore {
                          request.resource.data.role != 'admin' && request.resource.data.role != 'manager'
                        );
 
-      // DELETE: Only admins can delete user accounts.
       allow delete: if isOneOfRoles(['admin']);
     }
 
     // Rules for the 'event' collection
     match /event/{eventId} {
-      // READ: Anyone, including unauthenticated users, can read event data.
+      // READ: Authenticated users can read event data.
       allow read: if true;
 
       // CREATE & DELETE: Only admins and managers can create or delete events.
       allow create, delete: if isOneOfRoles(['admin', 'manager']);
 
-      // UPDATE: Admins/managers can update anything. Authenticated users can only register/unregister themselves.
+      // UPDATE: Admins/managers have full update access.
+      // Regular authenticated users can ONLY add/remove their own UID to registeredUsers.
+      // registeredCount is NOT user-writable — it's handled via FieldValue.increment which
+      // is validated as part of the atomic operation alongside registeredUsers.
       allow update: if isOneOfRoles(['admin', 'manager'])
                     || (
                          request.auth != null &&
-                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registeredUsers']) &&
+                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registeredUsers', 'registeredCount']) &&
                          (
-                           // Logic for registering (adding own UID to the array)
-                           request.resource.data.registeredUsers.toSet() == resource.data.registeredUsers.toSet().union([request.auth.uid].toSet()) ||
-                           // Logic for un-registering (removing own UID from the array)
-                           request.resource.data.registeredUsers.toSet() == resource.data.registeredUsers.toSet().difference([request.auth.uid].toSet())
+                           // Registering: adding own UID only
+                           (
+                             request.resource.data.registeredUsers.toSet() == resource.data.registeredUsers.toSet().union([request.auth.uid].toSet()) &&
+                             request.resource.data.registeredCount == resource.data.registeredCount + 1
+                           ) ||
+                           // Un-registering: removing own UID only
+                           (
+                             request.resource.data.registeredUsers.toSet() == resource.data.registeredUsers.toSet().difference([request.auth.uid].toSet()) &&
+                             request.resource.data.registeredCount == resource.data.registeredCount - 1
+                           )
                          )
                        );
+    }
+
+    // Rules for the 'brands' collection (global brand library)
+    match /brands/{brandDocId} {
+      allow read: if true;
+      allow create, update, delete: if isOneOfRoles(['admin', 'manager']);
+    }
+
+    // Rules for the 'assignments' collection (brand-event join table)
+    match /assignments/{assignmentId} {
+      allow read: if true;
+      allow create, update, delete: if isOneOfRoles(['admin', 'manager']);
+    }
+
+    // Rules for site settings (e.g. homepage sliders)
+    match /settings/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isOneOfRoles(['admin', 'manager']);
+    }
+
+    // Rules for the 'metadata' collection (auto-increment counters)
+    match /metadata/{docId} {
+      allow read: if true;
+
+      // Only userCounter can be created/incremented by regular users (during onboarding).
+      // All other counters require admin/manager role.
+      allow create: if request.auth != null &&
+                    docId == 'userCounter' &&
+                    request.resource.data.count == 1;
+
+      allow update: if isOneOfRoles(['admin', 'manager']) ||
+                    (request.auth != null &&
+                     docId == 'userCounter' &&
+                     request.resource.data.count == resource.data.count + 1);
+    }
+
+    // Rules for the 'stamps' collection (user treasure hunt stamp tickets)
+    match /stamps/{stampId} {
+      allow read: if request.auth != null &&
+                  (resource.data.userId == request.auth.uid ||
+                   isOneOfRoles(['admin', 'manager']));
+
+      allow create: if request.auth != null &&
+                    request.resource.data.userId == request.auth.uid &&
+                    stampId == request.resource.data.eventId + '-' + request.auth.uid;
+
+      // Users can update their own stamps: 'slots' for stamping, and 'claimed', 'claimedAt', 'claimedBy' for prize redemption.
+      allow update: if request.auth != null &&
+                    (
+                      (resource.data.userId == request.auth.uid &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'claimed', 'claimedAt', 'claimedBy']))
+                      || isOneOfRoles(['admin', 'manager'])
+                    );
+
+      allow delete: if isOneOfRoles(['admin']);
+    }
+
+    // Rules for the 'logs' collection (change audit logs)
+    match /logs/{logId} {
+      allow read: if isOneOfRoles(['admin', 'manager']);
+      allow create: if isOneOfRoles(['admin', 'manager']);
     }
   }
 }

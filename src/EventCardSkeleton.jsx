@@ -1,5 +1,3 @@
-import React from 'react';
-
 function EventCardSkeleton() {
   return (
     <div className="touchable-card" style={{ cursor: 'default' }}>

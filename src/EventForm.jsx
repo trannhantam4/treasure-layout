@@ -1,6 +1,6 @@
-import React from 'react';
+import { memo } from 'react';
 
-function EventForm({
+const EventForm = memo(({
   formData,
   onFormChange,
   onKeyviewUpload,
@@ -13,7 +13,7 @@ function EventForm({
   isSaving,
   submitText = 'Save',
   cancelText = 'Cancel',
-}) {
+}) => {
   return (
     <form onSubmit={onSubmit} className="modal-form">
       <div className="form-column">
@@ -60,6 +60,6 @@ function EventForm({
       </div>
     </form>
   );
-}
+});
 
 export default EventForm;

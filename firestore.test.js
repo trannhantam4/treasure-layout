@@ -202,3 +202,139 @@ describe("Firestore Security Rules: Event Collection", () => {
     }));
   });
 });
+
+describe("Firestore Security Rules: Brands Collection", () => {
+  const admin = { uid: "admin-id", role: "admin" };
+  const manager = { uid: "manager-id", role: "manager" };
+  const visitor = { uid: "visitor-id", role: "visitor" };
+  const brandDocId = "brand-123";
+
+  beforeEach(async () => {
+    const adminDb = getAdminFirestore();
+    await setDoc(doc(adminDb, "users", admin.uid), { role: "admin" });
+    await setDoc(doc(adminDb, "users", manager.uid), { role: "manager" });
+    await setDoc(doc(adminDb, "users", visitor.uid), { role: "visitor" });
+    await setDoc(doc(adminDb, "brands", brandDocId), { brandName: "TechCo", createdBy: admin.uid });
+  });
+
+  it("should allow anyone to read brands", async () => {
+    const db = getFirestoreAs(null);
+    await assertSucceeds(getDoc(doc(db, "brands", brandDocId)));
+  });
+
+  it("should allow admin to create a brand", async () => {
+    const db = getFirestoreAs(admin);
+    await assertSucceeds(setDoc(doc(db, "brands", "new-brand"), { brandName: "Brand Admin" }));
+  });
+
+  it("should allow manager to create a brand", async () => {
+    const db = getFirestoreAs(manager);
+    await assertSucceeds(setDoc(doc(db, "brands", "new-brand"), { brandName: "Brand Manager" }));
+  });
+
+  it("should NOT allow a visitor to create a brand", async () => {
+    const db = getFirestoreAs(visitor);
+    await assertFails(setDoc(doc(db, "brands", "new-brand"), { brandName: "Brand Visitor" }));
+  });
+});
+
+describe("Firestore Security Rules: Assignments Collection", () => {
+  const admin = { uid: "admin-id", role: "admin" };
+  const manager = { uid: "manager-id", role: "manager" };
+  const visitor = { uid: "visitor-id", role: "visitor" };
+  const assignmentId = "event1-brand1";
+
+  beforeEach(async () => {
+    const adminDb = getAdminFirestore();
+    await setDoc(doc(adminDb, "users", admin.uid), { role: "admin" });
+    await setDoc(doc(adminDb, "users", manager.uid), { role: "manager" });
+    await setDoc(doc(adminDb, "users", visitor.uid), { role: "visitor" });
+    await setDoc(doc(adminDb, "assignments", assignmentId), { eventId: "event1", brandId: 1 });
+  });
+
+  it("should allow anyone to read assignments", async () => {
+    const db = getFirestoreAs(null);
+    await assertSucceeds(getDoc(doc(db, "assignments", assignmentId)));
+  });
+
+  it("should allow admin to create an assignment", async () => {
+    const db = getFirestoreAs(admin);
+    await assertSucceeds(setDoc(doc(db, "assignments", "event2-brand2"), { eventId: "event2", brandId: 2 }));
+  });
+
+  it("should allow manager to create an assignment", async () => {
+    const db = getFirestoreAs(manager);
+    await assertSucceeds(setDoc(doc(db, "assignments", "event2-brand2"), { eventId: "event2", brandId: 2 }));
+  });
+
+  it("should NOT allow a visitor to create an assignment", async () => {
+    const db = getFirestoreAs(visitor);
+    await assertFails(setDoc(doc(db, "assignments", "event2-brand2"), { eventId: "event2", brandId: 2 }));
+  });
+});
+
+describe("Firestore Security Rules: Metadata Collection", () => {
+  const visitor = { uid: "visitor-id", role: "visitor" };
+
+  it("should allow anyone to read metadata", async () => {
+    const db = getFirestoreAs(null);
+    await assertSucceeds(getDoc(doc(db, "metadata", "brandCounter")));
+  });
+
+  it("should allow an authenticated user to write/increment counters", async () => {
+    const db = getFirestoreAs(visitor);
+    await assertSucceeds(setDoc(doc(db, "metadata", "brandCounter"), { count: 5 }));
+  });
+
+  it("should NOT allow an unauthenticated user to write metadata", async () => {
+    const db = getFirestoreAs(null);
+    await assertFails(setDoc(doc(db, "metadata", "brandCounter"), { count: 5 }));
+  });
+});
+
+describe("Firestore Security Rules: Stamps Collection", () => {
+  const admin = { uid: "admin-id", role: "admin" };
+  const manager = { uid: "manager-id", role: "manager" };
+  const visitor = { uid: "visitor-id", role: "visitor" };
+  const otherVisitor = { uid: "other-visitor-id", role: "visitor" };
+  const stampId = `event1-${visitor.uid}`;
+
+  beforeEach(async () => {
+    const adminDb = getAdminFirestore();
+    await setDoc(doc(adminDb, "users", admin.uid), { role: "admin" });
+    await setDoc(doc(adminDb, "users", manager.uid), { role: "manager" });
+    await setDoc(doc(adminDb, "users", visitor.uid), { role: "visitor" });
+    await setDoc(doc(adminDb, "users", otherVisitor.uid), { role: "visitor" });
+    await setDoc(doc(adminDb, "stamps", stampId), { ticketId: stampId, userId: visitor.uid, eventId: "event1", slots: [] });
+  });
+
+  it("should allow a user to read their own stamp ticket", async () => {
+    const db = getFirestoreAs(visitor);
+    await assertSucceeds(getDoc(doc(db, "stamps", stampId)));
+  });
+
+  it("should NOT allow a user to read another user's stamp ticket", async () => {
+    const db = getFirestoreAs(otherVisitor);
+    await assertFails(getDoc(doc(db, "stamps", stampId)));
+  });
+
+  it("should allow admin to read any user's stamp ticket", async () => {
+    const db = getFirestoreAs(admin);
+    await assertSucceeds(getDoc(doc(db, "stamps", stampId)));
+  });
+
+  it("should allow manager to read any user's stamp ticket", async () => {
+    const db = getFirestoreAs(manager);
+    await assertSucceeds(getDoc(doc(db, "stamps", stampId)));
+  });
+
+  it("should allow a user to create their own stamp ticket", async () => {
+    const db = getFirestoreAs(visitor);
+    await assertSucceeds(setDoc(doc(db, "stamps", `event2-${visitor.uid}`), { ticketId: `event2-${visitor.uid}`, userId: visitor.uid, eventId: "event2", slots: [] }));
+  });
+
+  it("should NOT allow a user to create a stamp ticket for another user", async () => {
+    const db = getFirestoreAs(visitor);
+    await assertFails(setDoc(doc(db, "stamps", `event2-${otherVisitor.uid}`), { ticketId: `event2-${otherVisitor.uid}`, userId: otherVisitor.uid, eventId: "event2", slots: [] }));
+  });
+});

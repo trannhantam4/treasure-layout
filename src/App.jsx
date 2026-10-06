@@ -1,55 +1,94 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import { useState, useEffect } from 'react'
-import { onAuthStateChanged } from 'firebase/auth'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { auth, db } from './firebase'
-import Navigation from './Navigation'
-import Home from './Home'
-import Login from './Login'
-import Events from './Events'
-import EventDetail from './EventDetail'
-import Profile from './Profile'
-import Admin from './Admin'
-import './App.css'
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { auth, db } from './firebase';
+import Navigation from './Navigation';
+import Home from './Home';
+import { canManage } from './utils/auth';
+import './App.css';
+
+// Lazy-loaded components
+const Login = lazy(() => import('./Login'));
+const Events = lazy(() => import('./Events'));
+const EventDetail = lazy(() => import('./EventDetail'));
+const Profile = lazy(() => import('./Profile'));
+const Admin = lazy(() => import('./Admin'));
+const BrandManager = lazy(() => import('./BrandManager'));
+const OnboardingModal = lazy(() => import('./OnboardingModal'));
 
 function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Holds the Firestore onSnapshot unsubscribe for the current user doc
+  const userDocUnsubscribeRef = useRef(null)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      // Clean up any previous user's Firestore listener
+      if (userDocUnsubscribeRef.current) {
+        userDocUnsubscribeRef.current();
+        userDocUnsubscribeRef.current = null;
+      }
+
       if (currentUser) {
-        let role = 'visitor';
-        try {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            role = userSnap.data().role || 'visitor';
-            await setDoc(userRef, {
+        const userRef = doc(db, 'users', currentUser.uid);
+
+        // Subscribe to the user doc for real-time profile and role updates.
+        userDocUnsubscribeRef.current = onSnapshot(userRef, (snap) => {
+          if (!snap.exists()) {
+            // New user: initialize profile document in Firestore
+            setDoc(userRef, {
               uid: currentUser.uid,
-              name: currentUser.displayName,
-              email: currentUser.email,
-              photoURL: currentUser.photoURL
-            }, { merge: true });
+              name: currentUser.displayName || '',
+              email: currentUser.email || '',
+              photoURL: currentUser.photoURL || '',
+              role: 'visitor',
+              profileCompleted: false,
+            }, { merge: true }).catch((err) => console.error("Error creating user doc:", err));
+
+            setUser({
+              uid: currentUser.uid,
+              name: currentUser.displayName || '',
+              email: currentUser.email || '',
+              photoURL: currentUser.photoURL || '',
+              role: 'visitor',
+              profileCompleted: false,
+              displayId: '', fullName: '', company: '', position: '', address: '', phone: '',
+            });
           } else {
-            await setDoc(userRef, {
+            // Existing user: load full profile data directly
+            const data = snap.data();
+            setUser({
               uid: currentUser.uid,
-              name: currentUser.displayName,
-              email: currentUser.email,
-              photoURL: currentUser.photoURL,
-              role: 'visitor'
+              name: currentUser.displayName || data.name || '',
+              email: currentUser.email || data.email || '',
+              photoURL: currentUser.photoURL || data.photoURL || '',
+              role: data.role || 'visitor',
+              profileCompleted: !!data.profileCompleted,
+              displayId:  data.displayId  || '',
+              fullName:   data.fullName   || '',
+              company:    data.company    || '',
+              position:   data.position   || '',
+              address:    data.address    || '',
+              phone:      data.phone      || '',
             });
           }
-        } catch (error) {
-          console.error("Error fetching/updating user role:", error);
-        }
-        setUser({ name: currentUser.displayName, email: currentUser.email, uid: currentUser.uid, photoURL: currentUser.photoURL, role });
+          setLoading(false);
+        }, (error) => {
+          console.error("Error listening to user doc:", error);
+          setLoading(false);
+        });
       } else {
         setUser(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return () => unsubscribe(); // Cleanup listener on unmount
+
+    return () => {
+      unsubscribeAuth();
+      if (userDocUnsubscribeRef.current) userDocUnsubscribeRef.current();
+    };
   }, []);
 
   if (loading) {
@@ -58,16 +97,33 @@ function App() {
 
   return (
     <Router>
+      {/* Onboarding: shown for any logged-in user who hasn't completed their profile */}
+      {user && !user.profileCompleted && (
+        <Suspense fallback={<div>Loading Onboarding...</div>}>
+          <OnboardingModal user={user} />
+        </Suspense>
+      )}
       <Navigation user={user} />
       <main style={{ display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/events" element={<Events user={user} />} />
-          <Route path="/events/:id" element={<EventDetail user={user} />} />
-          <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/admin" element={<Admin user={user} />} />
-        </Routes>
+        <Suspense fallback={<div>Loading...</div>}>
+          <Routes>
+            <Route path="/" element={<Home user={user} />} />
+            <Route path="/events" element={<Events user={user} />} />
+            <Route path="/events/:id" element={<EventDetail user={user} />} />
+            <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/admin" element={
+              canManage(user)
+                ? <Admin user={user} />
+                : <Navigate to="/" replace />
+            } />
+            <Route path="/brands" element={
+              canManage(user)
+                ? <BrandManager user={user} />
+                : <Navigate to="/" replace />
+            } />
+          </Routes>
+        </Suspense>
       </main>
     </Router>
   )

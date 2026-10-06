@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 
-function BackToTopButton({ scrollableRef }) {
+const BackToTopButton = memo(({ scrollableRef }) => {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -40,6 +40,6 @@ function BackToTopButton({ scrollableRef }) {
       ↑
     </button>
   );
-}
+});
 
 export default BackToTopButton;
