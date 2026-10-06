@@ -158,12 +158,17 @@
   --border-gold-strong: rgba(179, 134, 43, 0.65);
   --border-focus:       rgba(179, 134, 43, 0.65);
 
+  /* Metallic Gold Overrides for Light Mode (Darker & High Contrast) */
+  --gold-primary: #855b14;
+  --gold-light:   #78510d;
+  --gold-dark:    #5c3d06;
+
   /* Accents */
-  --accent:        #9e7526;
-  --accent-light:  #c89c42;
-  --accent-dark:   #7d5918;
-  --accent-bg:     rgba(179, 134, 43, 0.08);
-  --accent-border: rgba(179, 134, 43, 0.3);
+  --accent:        #855b14;
+  --accent-light:  #9e7526;
+  --accent-dark:   #5c3d06;
+  --accent-bg:     rgba(133, 91, 20, 0.1);
+  --accent-border: rgba(133, 91, 20, 0.35);
 
   /* Luxury Gradients */
   --gradient-accent: linear-gradient(135deg, #b3862b 0%, #dfb76c 50%, #9e7526 100%);
