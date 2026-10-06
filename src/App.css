@@ -1281,3 +1281,32 @@
 .suggestion-item:last-child {
   border-bottom: none !important;
 }
+
+/* ================================================================
+   QR SCANNER VIEWPORT (Prevents duplicate video/canvas feeds)
+   ================================================================ */
+#qr-reader-container {
+  position: relative;
+  width: 100% !important;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: #000;
+}
+
+#qr-reader-container video {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 380px !important;
+  object-fit: cover !important;
+  display: block !important;
+  margin: 0 auto !important;
+}
+
+/* Guard: strictly prevent any duplicate stacked video or canvas */
+#qr-reader-container video ~ video {
+  display: none !important;
+}
+
+#qr-reader-container canvas {
+  display: none !important;
+}

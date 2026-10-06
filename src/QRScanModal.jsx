@@ -13,12 +13,25 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
   const processedRef = useRef(false);
 
   useEffect(() => {
+    let isCancelled = false;
     let html5QrCode = null;
-    let isUnmounted = false;
+
+    // Clean up any residual streams or elements in the container
+    const container = document.getElementById(SCANNER_ID);
+    if (container) {
+      container.querySelectorAll('video').forEach((v) => {
+        try {
+          if (v.srcObject && typeof v.srcObject.getTracks === 'function') {
+            v.srcObject.getTracks().forEach((track) => track.stop());
+          }
+        } catch (_) {}
+      });
+      container.innerHTML = '';
+    }
 
     const startScanner = async () => {
       try {
-        if (isUnmounted) return;
+        if (isCancelled) return;
         html5QrCode = new Html5Qrcode(SCANNER_ID);
         scannerRef.current = html5QrCode;
 
@@ -51,15 +64,19 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
           () => {}
         );
 
-        if (isUnmounted && html5QrCode && html5QrCode.isScanning) {
+        // If unmounted while start was resolving, stop immediately
+        if (isCancelled && html5QrCode) {
           try {
-            await html5QrCode.stop();
+            if (html5QrCode.isScanning) {
+              await html5QrCode.stop();
+            }
+            html5QrCode.clear();
           } catch (e) {
             console.warn('Error stopping scanner after late start:', e);
           }
         }
       } catch (err) {
-        if (!isUnmounted) {
+        if (!isCancelled) {
           console.error('Failed to start scanner:', err);
           setMessage('Camera access denied or not available. Please allow camera permissions.');
           setStatus('error');
@@ -70,10 +87,16 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
     startScanner();
 
     return () => {
-      isUnmounted = true;
-      if (html5QrCode && html5QrCode.isScanning) {
+      isCancelled = true;
+      if (html5QrCode) {
         try {
-          html5QrCode.stop().catch((e) => console.warn('Error in cleanup stop catch:', e));
+          if (html5QrCode.isScanning) {
+            html5QrCode.stop().then(() => {
+              try { html5QrCode.clear(); } catch (_) {}
+            }).catch((e) => console.warn('Error in cleanup stop catch:', e));
+          } else {
+            try { html5QrCode.clear(); } catch (_) {}
+          }
         } catch (e) {
           console.warn('Sync error in cleanup stop:', e);
         }
@@ -82,9 +105,15 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
   }, [eventId, userId, onStamped]);
 
   const handleClose = () => {
-    if (scannerRef.current && scannerRef.current.isScanning) {
+    if (scannerRef.current) {
       try {
-        scannerRef.current.stop().catch((e) => console.warn('Error in close stop catch:', e));
+        if (scannerRef.current.isScanning) {
+          scannerRef.current.stop().then(() => {
+            try { scannerRef.current.clear(); } catch (_) {}
+          }).catch((e) => console.warn('Error in close stop catch:', e));
+        } else {
+          try { scannerRef.current.clear(); } catch (_) {}
+        }
       } catch (e) {
         console.warn('Sync error in close stop:', e);
       }
