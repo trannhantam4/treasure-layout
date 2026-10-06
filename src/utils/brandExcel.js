@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { toast } from './toast';
 
 /**
  * Download the Excel template for importing brands into the global catalog.
@@ -34,7 +35,7 @@ export const downloadBrandCatalogTemplate = () => {
  */
 export const exportBrandCatalog = (brands = []) => {
   if (!brands || brands.length === 0) {
-    alert('No brands in catalog to export.');
+    toast.warning('No brands in catalog to export.');
     return;
   }
 

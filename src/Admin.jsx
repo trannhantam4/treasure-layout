@@ -6,6 +6,7 @@ import SearchInput from './SearchInput';
 import { canManage } from './utils/auth';
 import { useBrands } from './hooks/useBrands';
 import EmptyState from './components/EmptyState';
+import { toast } from './utils/toast';
 
 const ALL_ROLES = ['visitor', 'vip buyer', 'manager', 'admin'];
 
@@ -163,9 +164,10 @@ function Admin({ user }) {
     try {
       const { doc: docRef, updateDoc } = await import('firebase/firestore');
       await updateDoc(docRef(db, 'users', userId), { role: newRole });
+      toast.success(`User role updated to ${newRole}`);
     } catch (error) {
       console.error("Error updating role:", error);
-      alert("Failed to update user role.");
+      toast.error("Failed to update user role.");
     }
   };
 
@@ -188,10 +190,10 @@ function Admin({ user }) {
         action: 'change_user_brand'
       });
 
-      alert(`Successfully changed company of ${targetUser.name} to "${newCompany}". Log recorded.`);
+      toast.success(`Successfully changed company of ${targetUser.name} to "${newCompany}".`);
     } catch (error) {
       console.error("Error updating user company:", error);
-      alert("Failed to update user company.");
+      toast.error("Failed to update user company.");
     }
   };
 

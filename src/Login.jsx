@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from './firebase';
+import { toast } from './utils/toast';
 
 function Login() {
   const navigate = useNavigate();
@@ -8,10 +9,11 @@ function Login() {
   const handleGoogleLogin = async () => {
     try {
       await signInWithPopup(auth, googleProvider);
+      toast.success("Welcome back! Successfully logged in.");
       navigate('/profile');
     } catch (error) {
       console.error("Error during Google Login:", error);
-      alert("Failed to login with Google. Please try again.");
+      toast.error("Failed to login with Google. Please try again.");
     }
   };
 

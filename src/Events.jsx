@@ -13,6 +13,7 @@ import * as XLSX from 'xlsx';
 import { getCachedEventsList, cacheEventsList } from './storage';
 import { canManage } from './utils/auth';
 import { handleFirebaseError } from './utils/firebaseErrors';
+import { toast } from './utils/toast';
 
 
 function Events({ user }) {
@@ -152,8 +153,9 @@ function Events({ user }) {
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, imageLink: url }));
+      toast.success("Keyview image uploaded successfully!");
     } catch {
-      alert("Keyview image upload failed.");
+      toast.error("Keyview image upload failed.");
     } finally {
       setIsUploadingKeyview(false);
       e.target.value = ''; // reset input
@@ -167,8 +169,9 @@ function Events({ user }) {
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, layoutImages: [...prev.layoutImages, url] }));
+      toast.success("Layout image uploaded successfully!");
     } catch {
-      alert("Layout image upload failed.");
+      toast.error("Layout image upload failed.");
     } finally {
       setIsUploadingLayout(false);
       e.target.value = ''; // reset input
@@ -184,7 +187,7 @@ function Events({ user }) {
     
     // Manual validation to ensure the form doesn't fail silently
     if (!formData.eventName || !formData.eventHostest || !formData.eventDateStart || !formData.eventLocation) {
-      alert("Please fill out the Event Name, Host, Start Date, and Location.");
+      toast.warning("Please fill out the Event Name, Host, Start Date, and Location.");
       return;
     }
 
@@ -202,7 +205,7 @@ function Events({ user }) {
         cacheEventsList(updated); // Update cache so re-navigation shows the new event
         return updated;
       });
-      alert('Event successfully added to Firestore! Check console for details.');
+      toast.success('Event successfully added to Firestore!');
       setShowAddModal(false);
       resetForm();
     } catch (error) {
@@ -269,7 +272,7 @@ function Events({ user }) {
         const json = XLSX.utils.sheet_to_json(worksheet);
 
         if (json.length === 0) {
-          alert("The Excel file is empty or in the wrong format.");
+          toast.warning("The Excel file is empty or in the wrong format.");
           return;
         }
 
@@ -318,10 +321,10 @@ function Events({ user }) {
           cacheEventsList(updated);
           return updated;
         });
-        alert(`Successfully imported ${json.length} event(s)!`);
+        toast.success(`Successfully imported ${json.length} event(s)!`);
       } catch (error) {
         console.error("Error during import:", error);
-        alert("An error occurred during the import process. Please check the console for details.");
+        toast.error("An error occurred during the import process. Please check console.");
       } finally {
         setIsImporting(false);
         e.target.value = ''; // Reset file input

@@ -885,6 +885,22 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toastProgress {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
 /* ================================================================
    REGISTRATION MODAL — Treasure Hunt Opt-In
    ================================================================ */

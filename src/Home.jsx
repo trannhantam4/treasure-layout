@@ -6,6 +6,7 @@ import BackToTopButton from './BackToTopButton';
 import { getCachedEventsList, cacheEventsList } from './storage';
 import { canManage } from './utils/auth';
 import SliderEditModal from './components/SliderEditModal';
+import { toast } from './utils/toast';
 
 const DEFAULT_SLIDERS = {
   slider1: [
@@ -125,11 +126,11 @@ function Home({ user }) {
         setSliderImages2(newImages);
       }
 
-      alert(`Successfully updated ${sliderTitle} images! Audit log recorded.`);
+      toast.success(`Successfully updated ${sliderTitle} images!`);
       setEditingSlider(null);
     } catch (err) {
       console.error("Error saving slider images:", err);
-      alert("Failed to update slider images: " + err.message);
+      toast.error("Failed to update slider images: " + err.message);
     } finally {
       setSavingSlider(false);
     }

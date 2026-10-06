@@ -6,6 +6,7 @@ import { auth, db } from './firebase';
 import Navigation from './Navigation';
 import Home from './Home';
 import { canManage } from './utils/auth';
+import ToastContainer from './components/Toast';
 import './App.css';
 
 // Lazy-loaded components
@@ -97,6 +98,7 @@ function App() {
 
   return (
     <Router>
+      <ToastContainer />
       {/* Onboarding: shown for any logged-in user who hasn't completed their profile */}
       {user && !user.profileCompleted && (
         <Suspense fallback={<div>Loading Onboarding...</div>}>

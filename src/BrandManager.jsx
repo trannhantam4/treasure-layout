@@ -15,6 +15,7 @@ import {
   exportBrandCatalog,
   parseBrandCatalogExcel,
 } from './utils/brandExcel';
+import { toast } from './utils/toast';
 
 const RANK_COLORS = {
   gold: 'var(--gold)',
@@ -73,8 +74,9 @@ function BrandManager({ user }) {
     try {
       await createBrand(formData, user.uid);
       setShowFormModal(false);
+      toast.success('Brand created successfully!');
     } catch (err) {
-      alert('Failed to create brand: ' + err.message);
+      toast.error('Failed to create brand: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -87,8 +89,9 @@ function BrandManager({ user }) {
       await updateBrand(editTarget.docId, formData);
       setEditTarget(null);
       setShowFormModal(false);
+      toast.success('Brand updated successfully!');
     } catch (err) {
-      alert('Failed to update brand: ' + err.message);
+      toast.error('Failed to update brand: ' + err.message);
     } finally {
       setSaving(false);
     }
@@ -98,8 +101,9 @@ function BrandManager({ user }) {
     if (!window.confirm(`Delete brand "${brand.brandName}"? This will also remove all its event assignments.`)) return;
     try {
       await deleteBrand(brand.docId);
+      toast.success('Brand deleted successfully!');
     } catch (err) {
-      alert('Failed to delete brand: ' + err.message);
+      toast.error('Failed to delete brand: ' + err.message);
     }
   };
 
@@ -124,7 +128,7 @@ function BrandManager({ user }) {
     try {
       const result = await parseBrandCatalogExcel(file, brands);
       if (result.totalRows === 0) {
-        alert('The uploaded Excel file has no data rows.');
+        toast.warning('The uploaded Excel file has no data rows.');
         return;
       }
       setImportPreviewData({
@@ -133,7 +137,7 @@ function BrandManager({ user }) {
       });
       setShowImportModal(true);
     } catch (err) {
-      alert('Failed to parse Excel file: ' + err.message);
+      toast.error('Failed to parse Excel file: ' + err.message);
     } finally {
       e.target.value = '';
     }
@@ -142,7 +146,7 @@ function BrandManager({ user }) {
   /* ─── Confirm Batch Import ─── */
   const handleConfirmImport = async () => {
     if (!importPreviewData?.validBrands || importPreviewData.validBrands.length === 0) {
-      alert('No valid brands to import.');
+      toast.warning('No valid brands to import.');
       return;
     }
 
@@ -155,12 +159,13 @@ function BrandManager({ user }) {
         cacheBrandCatalog(next);
         return next;
       });
-      alert(`Successfully imported ${created.length} brand(s)!`);
+      toast.success(`Successfully imported ${created.length} brand(s)!`);
       setShowImportModal(false);
       setImportPreviewData(null);
     } catch (err) {
       console.error('Error importing brands:', err);
       setImportError(err.message || 'Failed to import brands.');
+      toast.error(err.message || 'Failed to import brands.');
     } finally {
       setImporting(false);
     }

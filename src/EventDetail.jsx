@@ -18,6 +18,7 @@ import { handleFirebaseError } from './utils/firebaseErrors';
 import { stampKey } from './utils/keys';
 import BrandLogo from './components/BrandLogo';
 import EmptyState from './components/EmptyState';
+import { toast } from './utils/toast';
 
 import Logo from './Logo.png';
 
@@ -187,8 +188,9 @@ function EventDetail({ user }) {
       setIsUploading(true);
       const newImageUrl = await uploadEventImageAndUpdate(file, id);
       setCurrentLayoutImages(prev => [...prev, newImageUrl]);
+      toast.success("Layout image uploaded successfully!");
     } catch {
-      alert("Image upload failed. See console for details.");
+      toast.error("Image upload failed. See console for details.");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -221,10 +223,10 @@ function EventDetail({ user }) {
         setUserJoinedHunt(false);
         cacheUserRegistration(id, user.uid, false);
         cacheTreasureHuntOptIn(id, user.uid, false);
-        alert('You have unregistered from the event.');
+        toast.info('You have unregistered from the event.');
       } catch (error) {
         console.error("Error unregistering:", error);
-        alert("There was an issue. Please try again.");
+        toast.error("There was an issue. Please try again.");
       }
     } else {
       // Show registration modal with treasure hunt option
@@ -268,12 +270,12 @@ function EventDetail({ user }) {
         cacheTreasureHuntOptIn(id, user.uid, false);
       }
 
-      alert(joinTreasureHunt && treasureBrands.length > 0
+      toast.success(joinTreasureHunt && treasureBrands.length > 0
         ? 'Registered! Your Treasure Hunt card is ready below.'
         : 'You have successfully registered for the event!');
     } catch (error) {
       console.error("Error registering:", error);
-      alert("There was an issue. Please try again.");
+      toast.error("There was an issue. Please try again.");
     }
   };
 
@@ -285,10 +287,10 @@ function EventDetail({ user }) {
       const ticketData = await getOrCreateStampTicket(id, user.uid, event.eventName, treasureBrands);
       const ticketId = stampKey(id, user.uid);
       cacheStampTicket(ticketId, ticketData);
-      alert('Joined! Your Treasure Hunt card is ready below.');
+      toast.success('Joined! Your Treasure Hunt card is ready below.');
     } catch (err) {
       console.error('Error creating stamp ticket:', err);
-      alert('Failed to start Treasure Hunt. Please try again.');
+      toast.error('Failed to start Treasure Hunt. Please try again.');
       setUserJoinedHunt(false);
       cacheTreasureHuntOptIn(id, user.uid, false);
     }
@@ -296,7 +298,7 @@ function EventDetail({ user }) {
 
   const handleKeyviewImageUpload = async (e) => {
     if (!canEdit) {
-      alert('Unauthorized: Only Admin and Manager roles can update keyview image.');
+      toast.warning('Unauthorized: Only Admin and Manager roles can update keyview image.');
       return;
     }
     const file = e.target.files[0];
@@ -306,8 +308,9 @@ function EventDetail({ user }) {
       setIsUploadingKeyview(true);
       const newImageUrl = await uploadKeyviewImageAndUpdate(file, id);
       setCurrentKeyviewImage(newImageUrl);
+      toast.success("Keyview image uploaded successfully!");
     } catch {
-      alert("Keyview image upload failed. See console for details.");
+      toast.error("Keyview image upload failed. See console for details.");
     } finally {
       setIsUploadingKeyview(false);
       if (keyviewFileInputRef.current) keyviewFileInputRef.current.value = '';
@@ -321,7 +324,7 @@ function EventDetail({ user }) {
 
   const handleKeyviewUploadModal = async (e) => {
     if (!canEdit) {
-      alert('Unauthorized: Only Admin and Manager roles can update keyview image.');
+      toast.warning('Unauthorized: Only Admin and Manager roles can update keyview image.');
       return;
     }
     const file = e.target.files[0];
@@ -330,8 +333,9 @@ function EventDetail({ user }) {
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, imageLink: url }));
+      toast.success("Keyview image uploaded successfully!");
     } catch {
-      alert("Keyview image upload failed.");
+      toast.error("Keyview image upload failed.");
     } finally {
       setIsUploadingKeyviewModal(false);
       e.target.value = ''; // reset input
@@ -340,7 +344,7 @@ function EventDetail({ user }) {
   
   const handleLayoutUploadModal = async (e) => {
     if (!canEdit) {
-      alert('Unauthorized: Only Admin and Manager roles can upload layout images.');
+      toast.warning('Unauthorized: Only Admin and Manager roles can upload layout images.');
       return;
     }
     const file = e.target.files[0];
@@ -349,8 +353,9 @@ function EventDetail({ user }) {
     try {
       const url = await uploadImageToImgBB(file);
       setFormData(prev => ({ ...prev, layoutImages: [...prev.layoutImages, url] }));
+      toast.success("Layout image uploaded successfully!");
     } catch {
-      alert("Layout image upload failed.");
+      toast.error("Layout image upload failed.");
     } finally {
       setIsUploadingLayoutModal(false);
       e.target.value = ''; // reset input
@@ -364,7 +369,7 @@ function EventDetail({ user }) {
 
   const handleDeleteLayoutImage = async (indexToDelete) => {
     if (!canEdit) {
-      alert('Unauthorized: Only Admin and Manager roles can delete layout images.');
+      toast.warning('Unauthorized: Only Admin and Manager roles can delete layout images.');
       return;
     }
     if (!window.confirm("Are you sure you want to delete this layout picture?")) return;
@@ -379,16 +384,16 @@ function EventDetail({ user }) {
         setFullscreenImage(null);
         setFullscreenImageIndex(null);
       }
-      alert('Layout image deleted successfully.');
+      toast.success('Layout image deleted successfully.');
     } catch (error) {
       console.error('Failed to delete layout image:', error);
-      alert('Failed to delete layout image.');
+      toast.error('Failed to delete layout image.');
     }
   };
 
   const handleReplaceLayoutImage = async (indexToReplace, file) => {
     if (!canEdit) {
-      alert('Unauthorized: Only Admin and Manager roles can update layout images.');
+      toast.warning('Unauthorized: Only Admin and Manager roles can update layout images.');
       return;
     }
     if (!file) return;
@@ -407,10 +412,10 @@ function EventDetail({ user }) {
       setCurrentLayoutImages(updatedImages);
       setEvent(prev => ({ ...prev, layoutImages: updatedImages }));
       setFormData(prev => ({ ...prev, layoutImages: updatedImages }));
-      alert('Layout image updated successfully!');
+      toast.success('Layout image updated successfully!');
     } catch (error) {
       console.error('Failed to replace layout image:', error);
-      alert('Failed to update layout image.');
+      toast.error('Failed to update layout image.');
     } finally {
       setIsUploading(false);
     }
@@ -419,20 +424,20 @@ function EventDetail({ user }) {
   const handleUpdateSubmit = async (e) => {
     e.preventDefault();
     if (!canEdit) {
-      alert('Unauthorized: Only Admin and Manager roles can update event details.');
+      toast.warning('Unauthorized: Only Admin and Manager roles can update event details.');
       return;
     }
     
     // Manual validation to ensure the form doesn't fail silently
     if (!formData.eventName || !formData.eventHostest || !formData.eventDateStart || !formData.eventLocation) {
-      alert("Please fill out the Event Name, Host, Start Date, and Location.");
+      toast.warning("Please fill out the Event Name, Host, Start Date, and Location.");
       return;
     }
 
     setIsSaving(true);
     try {
       await updateEventInFirestore(id, formData);
-      alert('Event successfully updated in Firestore! Check console for details.');
+      toast.success('Event successfully updated in Firestore!');
       setCurrentKeyviewImage(formData.imageLink);
       setCurrentLayoutImages(formData.layoutImages);
       setEvent(prev => ({ ...prev, ...formData }));
@@ -450,7 +455,7 @@ function EventDetail({ user }) {
     }
     try {
       await deleteEventFromFirestore(id);
-      alert('Event deleted successfully!');
+      toast.success('Event deleted successfully!');
       navigate('/events');
     } catch (error) {
       handleFirebaseError(error, 'delete event');
@@ -469,7 +474,7 @@ function EventDetail({ user }) {
 
   const handleExportAssignedBrands = async () => {
     if (assignedBrands.length === 0) {
-      alert('No brands assigned to this event yet.');
+      toast.warning('No brands assigned to this event yet.');
       return;
     }
     const XLSX = await import('xlsx');
@@ -503,8 +508,9 @@ function EventDetail({ user }) {
     try {
       await removeAssignment(combinedId);
       setAssignedBrands((prev) => prev.filter((a) => a.combinedId !== combinedId));
+      toast.success('Brand removed from event successfully.');
     } catch (err) {
-      alert('Failed to remove brand: ' + err.message);
+      toast.error('Failed to remove brand: ' + err.message);
     }
   };
 
@@ -531,7 +537,7 @@ function EventDetail({ user }) {
       return true;
     } catch (err) {
       console.error('Failed to update position:', err);
-      alert('Failed to update position: ' + err.message);
+      toast.error('Failed to update position: ' + err.message);
       return false;
     }
   };
@@ -543,8 +549,9 @@ function EventDetail({ user }) {
       setAssignedBrands((prev) =>
         prev.map((a) => a.combinedId === combinedId ? { ...a, isTreasureHolder: next } : a)
       );
+      toast.success(next ? 'Marked as Treasure Holder!' : 'Removed Treasure Holder status.');
     } catch (err) {
-      alert('Failed to update Treasure Holder status: ' + err.message);
+      toast.error('Failed to update Treasure Holder status: ' + err.message);
     }
   };
 
@@ -565,7 +572,7 @@ function EventDetail({ user }) {
       QRCode.toCanvas(canvas, combinedId, { width: 180, margin: 1 }, (err) => {
         if (err) {
           console.error('QR generation error:', err);
-          alert('Failed to generate QR code.');
+          toast.error('Failed to generate QR code.');
         }
       });
     }
@@ -607,7 +614,7 @@ function EventDetail({ user }) {
       await updateDoc(eventRef, { layoutImages: updatedLayoutImages });
     } catch (error) {
       console.error("Failed to save pin:", error);
-      alert("Could not save the new pin. Please try again.");
+      toast.error("Could not save the new pin. Please try again.");
     }
   };
 
@@ -638,9 +645,10 @@ function EventDetail({ user }) {
     try {
       const eventRef = doc(db, 'event', id);
       await updateDoc(eventRef, { layoutImages: updatedLayoutImages });
+      toast.success('Pin deleted successfully.');
     } catch (error) {
       console.error("Failed to delete pin:", error);
-      alert("Could not delete the pin. Please try again.");
+      toast.error("Could not delete the pin. Please try again.");
     }
   };
 
@@ -673,7 +681,7 @@ function EventDetail({ user }) {
       await updateDoc(eventRef, { layoutImages: currentLayoutImages });
     } catch (error) {
       console.error("Failed to save pin position:", error);
-      alert("Could not save the new pin position. Please try again.");
+      toast.error("Could not save the new pin position. Please try again.");
     }
   };
 
