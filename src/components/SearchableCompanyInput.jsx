@@ -101,12 +101,12 @@ const SearchableCompanyInput = memo(({ value, onChange, brands }) => {
               top: '50%',
               transform: 'translateY(-50%)',
               fontSize: '11px',
-              color: 'var(--text-muted)',
+              color: 'var(--gold-light)',
               pointerEvents: 'none',
               background: 'var(--bg-input)',
               padding: '2px 6px',
               borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border)',
+              border: '1px solid var(--border-gold)',
             }}
           >
             Min 3 chars
@@ -168,9 +168,9 @@ const dropdownContainerStyle = {
   zIndex: 1000,
   marginTop: '4px',
   background: 'var(--bg-card-solid)',
-  border: '1px solid var(--border)',
+  border: '1px solid var(--border-gold)',
   borderRadius: 'var(--radius-md)',
-  boxShadow: 'var(--shadow-glow)',
+  boxShadow: 'var(--shadow-glow), 0 8px 24px rgba(0, 0, 0, 0.6)',
   maxHeight: '200px',
   overflowY: 'auto',
 };
@@ -180,7 +180,7 @@ const itemStyle = {
   cursor: 'pointer',
   fontSize: 'var(--font-sm)',
   transition: 'background var(--duration-fast) var(--ease-out)',
-  borderBottom: '1px solid var(--border)',
+  borderBottom: '1px solid var(--border-gold)',
 };
 
 export default SearchableCompanyInput;

@@ -1,114 +1,19 @@
 /* ============================================================
-   TreasureLayout — Design System Tokens
-   Single source of truth for colors, typography, spacing, etc.
+   TreasureLayout — Luxury Design System Tokens
+   Prestigious Onyx & Champagne Gold Theme System
    Dark mode: [data-theme="dark"] (default)
    Light mode: [data-theme="light"]
    ============================================================ */
 
-/* ---- Light Mode (base) ---- */
-:root,
-[data-theme="light"] {
-  /* Surfaces */
-  --bg-body:       #f0f2f5;
-  --bg-card:       rgba(255, 255, 255, 0.75);
-  --bg-card-solid: #ffffff;
-  --bg-input:      #ffffff;
-  --bg-glass:      rgba(255, 255, 255, 0.6);
-
-  /* Text */
-  --text-primary:   #1a1a2e;
-  --text-secondary: #64748b;
-  --text-muted:     #94a3b8;
-
-  /* Borders */
-  --border:       rgba(0, 0, 0, 0.08);
-  --border-focus: rgba(99, 102, 241, 0.5);
-
-  /* Accent (indigo-violet gradient spectrum) */
-  --accent:        #6366f1;
-  --accent-light:  #818cf8;
-  --accent-dark:   #4f46e5;
-  --accent-bg:     rgba(99, 102, 241, 0.08);
-  --accent-border: rgba(99, 102, 241, 0.3);
-  --gradient-accent: linear-gradient(135deg, #6366f1, #8b5cf6);
-
-  /* Status */
-  --success:     #22c55e;
-  --success-bg:  rgba(34, 197, 94, 0.1);
-  --danger:      #ef4444;
-  --danger-bg:   rgba(239, 68, 68, 0.1);
-  --warning:     #f59e0b;
-  --warning-bg:  rgba(245, 158, 11, 0.1);
-  --info:        #3b82f6;
-  --info-bg:     rgba(59, 130, 246, 0.1);
-
-  /* Rank colors */
-  --gold:    #f59e0b;
-  --silver:  #9ca3af;
-  --bronze:  #b45309;
-  --treasure: #f59e0b;
-
-  /* Role colors */
-  --role-admin:     #ef4444;
-  --role-manager:   #f97316;
-  --role-vip:       #8b5cf6;
-  --role-visitor:   #6366f1;
-
-  /* Elevation */
-  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md:  0 4px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg:  0 12px 40px rgba(0, 0, 0, 0.12);
-  --shadow-glow: 0 0 24px rgba(99, 102, 241, 0.15);
-  --blur-glass: 16px;
-
-  /* Code */
-  --bg-code: #f1f5f9;
-}
-
-/* ---- Dark Mode ---- */
-[data-theme="dark"] {
-  --bg-body:       #0f0f17;
-  --bg-card:       rgba(30, 30, 46, 0.7);
-  --bg-card-solid: #1e1e2e;
-  --bg-input:      rgba(30, 30, 46, 0.9);
-  --bg-glass:      rgba(30, 30, 46, 0.5);
-
-  --text-primary:   #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted:     #64748b;
-
-  --border:       rgba(255, 255, 255, 0.08);
-  --border-focus: rgba(129, 140, 248, 0.5);
-
-  --accent:        #818cf8;
-  --accent-light:  #a5b4fc;
-  --accent-dark:   #6366f1;
-  --accent-bg:     rgba(129, 140, 248, 0.1);
-  --accent-border: rgba(129, 140, 248, 0.3);
-  --gradient-accent: linear-gradient(135deg, #818cf8, #a78bfa);
-
-  --success:     #4ade80;
-  --success-bg:  rgba(74, 222, 128, 0.1);
-  --danger:      #f87171;
-  --danger-bg:   rgba(248, 113, 113, 0.1);
-  --warning:     #fbbf24;
-  --warning-bg:  rgba(251, 191, 36, 0.1);
-  --info:        #60a5fa;
-  --info-bg:     rgba(96, 165, 250, 0.1);
-
-  --shadow-sm:  0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md:  0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg:  0 12px 40px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 24px rgba(129, 140, 248, 0.2);
-
-  --bg-code: #1e1e2e;
-}
-
-/* ---- Typography Scale ---- */
+/* ---- Common Luxury Tokens ---- */
 :root {
-  --font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  /* High-end Font Pairing */
+  --font-serif: 'Cinzel', 'Playfair Display', Georgia, serif;
+  --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-family: var(--font-sans);
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
 
+  /* Typography Scale */
   --font-xs:   0.75rem;   /* 12px */
   --font-sm:   0.8125rem; /* 13px */
   --font-base: 0.9375rem; /* 15px */
@@ -126,10 +31,9 @@
   --tracking-tight: -0.02em;
   --tracking-normal: 0;
   --tracking-wide:   0.05em;
-}
+  --tracking-luxury: 0.12em;
 
-/* ---- Spacing Scale ---- */
-:root {
+  /* Spacing Scale */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -141,23 +45,165 @@
   --space-9: 48px;
   --space-10: 64px;
 
-  --radius-sm:   6px;
-  --radius-md:   10px;
-  --radius-lg:   16px;
-  --radius-xl:   20px;
+  /* Refined Curvature */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   18px;
+  --radius-xl:   24px;
   --radius-full: 9999px;
-}
 
-/* ---- Transitions ---- */
-:root {
+  /* Transitions */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --duration-fast: 150ms;
   --duration-normal: 250ms;
   --duration-slow: 400ms;
+
+  /* Metallic Colors */
+  --gold-primary: #dfb76c;
+  --gold-light:   #f6e6b8;
+  --gold-dark:    #b3862b;
+  --silver-light: #f1f5f9;
+  --silver-dark:  #94a3b8;
+  --bronze-light: #e6a877;
+  --bronze-dark:  #9a5b28;
 }
 
-/* ---- Base Styles ---- */
+/* ---- Dark Mode (Default / Onyx & Champagne Gold) ---- */
+[data-theme="dark"] {
+  /* Luxury Surfaces */
+  --bg-body:       #090a0e;
+  --bg-ambient:    radial-gradient(ellipse 90% 50% at 50% -15%, rgba(223, 183, 108, 0.12), transparent 70%),
+                   radial-gradient(circle 800px at 95% 25%, rgba(179, 134, 43, 0.06), transparent 60%);
+  --bg-card:       rgba(18, 20, 27, 0.76);
+  --bg-card-solid: #13151c;
+  --bg-input:      rgba(12, 14, 19, 0.88);
+  --bg-glass:      rgba(10, 11, 16, 0.82);
+
+  /* Text */
+  --text-primary:   #f8fafc;
+  --text-secondary: #a3abbb;
+  --text-muted:     #687082;
+
+  /* Borders & Hairlines */
+  --border:             rgba(255, 255, 255, 0.08);
+  --border-gold:        rgba(223, 183, 108, 0.28);
+  --border-gold-strong: rgba(223, 183, 108, 0.55);
+  --border-focus:       rgba(223, 183, 108, 0.65);
+
+  /* Accents */
+  --accent:        #dfb76c;
+  --accent-light:  #f6e6b8;
+  --accent-dark:   #b3862b;
+  --accent-bg:     rgba(223, 183, 108, 0.1);
+  --accent-border: rgba(223, 183, 108, 0.35);
+
+  /* Luxury Gradients */
+  --gradient-accent: linear-gradient(135deg, #dfb76c 0%, #f6e6b8 45%, #c89c42 80%, #9e7526 100%);
+  --gradient-gold:   linear-gradient(135deg, #dfb76c 0%, #f6e6b8 50%, #b3862b 100%);
+  --gradient-card:   linear-gradient(145deg, rgba(24, 27, 36, 0.8) 0%, rgba(13, 15, 20, 0.9) 100%);
+  --gradient-card-hover: linear-gradient(145deg, rgba(30, 34, 46, 0.85) 0%, rgba(16, 18, 25, 0.95) 100%);
+
+  /* Status Colors */
+  --success:     #34d399;
+  --success-bg:  rgba(52, 211, 153, 0.12);
+  --danger:      #f87171;
+  --danger-bg:   rgba(248, 113, 113, 0.12);
+  --warning:     #fbbf24;
+  --warning-bg:  rgba(251, 191, 36, 0.12);
+  --info:        #60a5fa;
+  --info-bg:     rgba(96, 165, 250, 0.12);
+
+  /* Ranks */
+  --gold:    #dfb76c;
+  --silver:  #cbd5e1;
+  --bronze:  #d97706;
+  --treasure: #dfb76c;
+
+  /* Roles */
+  --role-admin:     #f87171;
+  --role-manager:   #fb923c;
+  --role-vip:       #dfb76c;
+  --role-visitor:   #94a3b8;
+
+  /* Elevation */
+  --shadow-sm:   0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md:   0 8px 24px -4px rgba(0, 0, 0, 0.65), 0 0 16px -2px rgba(223, 183, 108, 0.08);
+  --shadow-lg:   0 20px 50px -10px rgba(0, 0, 0, 0.85), 0 0 30px -4px rgba(223, 183, 108, 0.18);
+  --shadow-glow: 0 0 32px rgba(223, 183, 108, 0.25);
+  --blur-glass:  20px;
+
+  --bg-code: #13151c;
+}
+
+/* ---- Light Mode (Warm Alabaster & Antique Gold) ---- */
+:root,
+[data-theme="light"] {
+  /* Surfaces */
+  --bg-body:       #f9f8f5;
+  --bg-ambient:    radial-gradient(ellipse 90% 45% at 50% -10%, rgba(200, 156, 66, 0.08), transparent 60%);
+  --bg-card:       rgba(255, 255, 255, 0.85);
+  --bg-card-solid: #ffffff;
+  --bg-input:      #ffffff;
+  --bg-glass:      rgba(255, 255, 255, 0.82);
+
+  /* Text */
+  --text-primary:   #111216;
+  --text-secondary: #5a5f6e;
+  --text-muted:     #8f96a6;
+
+  /* Borders */
+  --border:             rgba(0, 0, 0, 0.08);
+  --border-gold:        rgba(179, 134, 43, 0.35);
+  --border-gold-strong: rgba(179, 134, 43, 0.65);
+  --border-focus:       rgba(179, 134, 43, 0.65);
+
+  /* Accents */
+  --accent:        #9e7526;
+  --accent-light:  #c89c42;
+  --accent-dark:   #7d5918;
+  --accent-bg:     rgba(179, 134, 43, 0.08);
+  --accent-border: rgba(179, 134, 43, 0.3);
+
+  /* Luxury Gradients */
+  --gradient-accent: linear-gradient(135deg, #b3862b 0%, #dfb76c 50%, #9e7526 100%);
+  --gradient-gold:   linear-gradient(135deg, #b3862b 0%, #dfb76c 50%, #8c641d 100%);
+  --gradient-card:   linear-gradient(145deg, #ffffff 0%, #faf8f5 100%);
+  --gradient-card-hover: linear-gradient(145deg, #ffffff 0%, #f5f2ec 100%);
+
+  /* Status Colors */
+  --success:     #10b981;
+  --success-bg:  rgba(16, 185, 129, 0.1);
+  --danger:      #ef4444;
+  --danger-bg:   rgba(239, 68, 68, 0.1);
+  --warning:     #f59e0b;
+  --warning-bg:  rgba(245, 158, 11, 0.1);
+  --info:        #3b82f6;
+  --info-bg:     rgba(59, 130, 246, 0.1);
+
+  /* Ranks */
+  --gold:    #b3862b;
+  --silver:  #64748b;
+  --bronze:  #b45309;
+  --treasure: #b3862b;
+
+  /* Roles */
+  --role-admin:     #ef4444;
+  --role-manager:   #f97316;
+  --role-vip:       #9e7526;
+  --role-visitor:   #64748b;
+
+  /* Elevation */
+  --shadow-sm:   0 1px 4px rgba(0, 0, 0, 0.05);
+  --shadow-md:   0 6px 20px rgba(0, 0, 0, 0.08);
+  --shadow-lg:   0 16px 40px rgba(0, 0, 0, 0.12), 0 0 24px rgba(179, 134, 43, 0.08);
+  --shadow-glow: 0 0 24px rgba(179, 134, 43, 0.15);
+  --blur-glass:  16px;
+
+  --bg-code: #f1f5f9;
+}
+
+/* ---- Base Styles & Typography ---- */
 body {
   margin: 0;
   font-family: var(--font-family);
@@ -165,6 +211,9 @@ body {
   line-height: var(--leading-normal);
   color: var(--text-secondary);
   background-color: var(--bg-body);
+  background-image: var(--bg-ambient);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color var(--duration-normal) var(--ease-out),
@@ -173,35 +222,70 @@ body {
 
 h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
+  font-family: var(--font-serif);
   font-weight: 700;
   line-height: var(--leading-tight);
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: var(--tracking-luxury);
   margin: 0;
 }
 
-h1 { font-size: var(--font-3xl); }
-h2 { font-size: var(--font-2xl); }
-h3 { font-size: var(--font-xl);  }
-h4 { font-size: var(--font-lg);  }
+h1 {
+  font-size: var(--font-3xl);
+  letter-spacing: 0.08em;
+}
 
-a { color: var(--accent); text-decoration: none; }
-a:hover { color: var(--accent-light); }
+h2 {
+  font-size: var(--font-2xl);
+  letter-spacing: 0.06em;
+}
+
+h3 {
+  font-size: var(--font-xl);
+  letter-spacing: 0.05em;
+}
+
+h4 {
+  font-size: var(--font-lg);
+  letter-spacing: 0.04em;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--duration-fast);
+}
+
+a:hover {
+  color: var(--accent-light);
+}
 
 code {
   font-family: var(--font-mono);
   font-size: var(--font-sm);
   background: var(--bg-code);
-  padding: 2px 6px;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  padding: 2px 7px;
   border-radius: var(--radius-sm);
 }
 
 ::selection {
   background: var(--accent);
-  color: #fff;
+  color: #000;
 }
 
-/* Scrollbar styling (webkit) */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-full); }
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+/* Luxury Scrollbar */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(223, 183, 108, 0.3);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(223, 183, 108, 0.6);
+}

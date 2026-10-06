@@ -82,12 +82,12 @@ const SearchInput = memo(({ searchTerm, setSearchTerm, placeholder, style, class
             top: '50%',
             transform: 'translateY(-50%)',
             fontSize: '11px',
-            color: 'var(--text-muted)',
+            color: 'var(--gold-light)',
             pointerEvents: 'none',
             background: 'var(--bg-input)',
             padding: '2px 6px',
             borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border)',
+            border: '1px solid var(--border-gold)',
           }}
         >
           Min 3 chars

@@ -11,10 +11,10 @@ const EmptyState = memo(({ icon = '📭', message = 'Nothing found.' }) => (
       width: '100%',
       padding: 'var(--space-6) 0',
       textAlign: 'center',
-      color: 'var(--text-muted)',
+      color: 'var(--text-secondary)',
       backgroundColor: 'var(--bg-input)',
       borderRadius: 'var(--radius-lg)',
-      border: '1px solid var(--border)',
+      border: '1px solid var(--border-gold)',
     }}
   >
     <span style={{ fontSize: '2rem', display: 'block', marginBottom: 'var(--space-2)' }}>{icon}</span>

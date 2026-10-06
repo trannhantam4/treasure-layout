@@ -286,7 +286,7 @@ function BrandManager({ user }) {
                       <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{ev.eventDateStart} · {ev.eventLocation}</div>
                     </div>
                     <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center', flexShrink: 0 }}>
-                      <span className="badge" style={{ background: RANK_COLORS[ev.rank] || 'var(--accent)', color: '#fff' }}>
+                      <span className="badge" style={{ background: RANK_COLORS[ev.rank] || 'var(--accent)', color: ev.rank === 'gold' ? '#0b0c10' : '#fff' }}>
                         {ev.rank}
                       </span>
                       {ev.position && <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Pos: {ev.position}</span>}
@@ -442,7 +442,7 @@ const eventRowStyle = {
   padding: 'var(--space-2) var(--space-3)',
   background: 'var(--bg-input)',
   borderRadius: 'var(--radius-md)',
-  border: '1px solid var(--border)',
+  border: '1px solid var(--border-gold)',
 };
 
 export default BrandManager;

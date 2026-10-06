@@ -12,18 +12,24 @@
   width: 50px;
   height: 50px;
   border-radius: 50%;
-  border: 1px solid var(--border);
-  background-color: var(--card-bg);
-  color: var(--text-h);
+  border: 1px solid var(--border-gold);
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--blur-glass));
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+  color: var(--accent);
   font-size: 20px;
   display: flex;
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: transform 0.2s ease-in-out, background-color 0.3s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 12px rgba(223, 183, 108, 0.15);
+  transition: transform 0.2s ease-in-out, background 0.3s, border-color 0.3s, box-shadow 0.3s;
 }
 
 .floating-btn:hover {
   transform: scale(1.1);
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent-bg);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 24px rgba(223, 183, 108, 0.35);
 }

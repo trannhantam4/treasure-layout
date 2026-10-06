@@ -141,31 +141,35 @@ function Home({ user }) {
         {/* Hero Section */}
         <section style={{
           textAlign: 'center',
-          padding: 'var(--space-6) var(--space-4)',
-          background: 'var(--bg-card)',
+          padding: 'var(--space-8) var(--space-6)',
+          background: 'var(--gradient-card)',
           borderRadius: 'var(--radius-xl)',
-          border: '1px solid var(--border)',
-          boxShadow: 'var(--shadow-sm)',
+          border: '1px solid var(--border-gold)',
+          boxShadow: 'var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.08)',
           position: 'relative',
           overflow: 'hidden'
         }}>
           <div style={{
             position: 'absolute', inset: 0,
-            background: 'radial-gradient(circle at 50% 0%, var(--accent-bg), transparent 70%)',
+            background: 'radial-gradient(circle at 50% 0%, rgba(223, 183, 108, 0.18), transparent 70%)',
             pointerEvents: 'none'
           }} />
-          <span className="badge badge-accent" style={{ marginBottom: 'var(--space-3)' }}>Event Layout & Treasure Hunt Platform</span>
+          <span className="badge badge-accent" style={{ marginBottom: 'var(--space-3)' }}>Event Layout &amp; Treasure Hunt Platform</span>
           <h1 style={{
-            fontSize: 'var(--font-3xl)',
-            letterSpacing: 'var(--tracking-tight)',
+            fontSize: 'clamp(1.75rem, 4vw, 2.5rem)',
+            fontFamily: 'var(--font-serif)',
+            fontWeight: 800,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
             background: 'var(--gradient-accent)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
-            margin: 'var(--space-2) 0'
+            margin: 'var(--space-3) 0',
+            filter: 'drop-shadow(0 2px 10px rgba(223, 183, 108, 0.2))'
           }}>
-            Discover & Connect at Top Events
+            Discover &amp; Connect at Top Events
           </h1>
-          <p style={{ color: 'var(--text-secondary)', maxWidth: '540px', margin: '0 auto var(--space-4)', fontSize: 'var(--font-base)' }}>
+          <p style={{ color: 'var(--text-secondary)', maxWidth: '540px', margin: '0 auto var(--space-2)', fontSize: 'var(--font-base)', lineHeight: 'var(--leading-loose)' }}>
             Explore floor plans, connect with premier brands, and collect digital stamps to win prizes.
           </p>
         </section>
