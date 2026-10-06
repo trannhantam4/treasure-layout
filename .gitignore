@@ -38,3 +38,4 @@ dist-ssr
 # Production build
 node_modules/
 dist/
+.firebase/

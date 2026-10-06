@@ -33,6 +33,7 @@ function EventDetail({ user }) {
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
   const keyviewFileInputRef = useRef(null);
+  const hasDraggedRef = useRef(false);
 
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingKeyview, setIsUploadingKeyview] = useState(false);
@@ -47,6 +48,8 @@ function EventDetail({ user }) {
   const [isSaving, setIsSaving] = useState(false);
   const [assignedBrands, setAssignedBrands] = useState([]);
   const [loadingBrands, setLoadingBrands] = useState(true);
+  const [showAllBrands, setShowAllBrands] = useState(false);
+  const BRAND_COLLAPSE_LIMIT = 5;
   const [showAssignBrandModal, setShowAssignBrandModal] = useState(false);
   const [assignModalTab, setAssignModalTab] = useState('single');
   const { brands: globalBrands } = useBrands();
@@ -78,6 +81,7 @@ function EventDetail({ user }) {
 
   const canEdit = canManage(user);
   const treasureBrands = assignedBrands.filter((b) => b.isTreasureHolder);
+  const displayedBrands = showAllBrands ? assignedBrands : assignedBrands.slice(0, BRAND_COLLAPSE_LIMIT);
   
   const isRegistered = user ? (userRegState ?? event?.registeredUsers?.includes(user?.uid)) : false;
 
@@ -569,13 +573,15 @@ function EventDetail({ user }) {
 
   const handleFullscreenClick = async (e) => {
     if (!canEdit || !imageContainerRef.current) return;
+    if (draggingPinIndex !== null || hasDraggedRef.current) return;
 
     const rect = imageContainerRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    const xPercent = (x / rect.width) * 100;
-    const yPercent = (y / rect.height) * 100;
+    // Strictly constrain percentage between 0% and 100% of the image
+    const xPercent = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    const yPercent = Math.max(0, Math.min(100, (y / rect.height) * 100));
 
     const newPin = { x: xPercent, y: yPercent, type: selectedPinType };
 
@@ -642,6 +648,14 @@ function EventDetail({ user }) {
     if (!canEdit) return;
     e.preventDefault();
     e.stopPropagation();
+    hasDraggedRef.current = false;
+    setDraggingPinIndex(index);
+  };
+
+  const handlePinTouchStart = (e, index) => {
+    if (!canEdit) return;
+    e.stopPropagation();
+    hasDraggedRef.current = false;
     setDraggingPinIndex(index);
   };
 
@@ -649,6 +663,9 @@ function EventDetail({ user }) {
     if (draggingPinIndex === null) return;
     
     setDraggingPinIndex(null);
+    setTimeout(() => {
+      hasDraggedRef.current = false;
+    }, 120);
 
     // Persist the final position to Firestore
     try {
@@ -662,6 +679,7 @@ function EventDetail({ user }) {
 
   const handleMouseMove = (e) => {
     if (draggingPinIndex === null || !imageContainerRef.current) return;
+    hasDraggedRef.current = true;
 
     const rect = imageContainerRef.current.getBoundingClientRect();
     let x = e.clientX - rect.left;
@@ -694,6 +712,40 @@ function EventDetail({ user }) {
     }
   };
 
+  const handleTouchMove = (e) => {
+    if (draggingPinIndex === null || !imageContainerRef.current) return;
+    const touch = e.touches?.[0];
+    if (!touch) return;
+    hasDraggedRef.current = true;
+
+    const rect = imageContainerRef.current.getBoundingClientRect();
+    let x = touch.clientX - rect.left;
+    let y = touch.clientY - rect.top;
+
+    x = Math.max(0, Math.min(x, rect.width));
+    y = Math.max(0, Math.min(y, rect.height));
+
+    const xPercent = (x / rect.width) * 100;
+    const yPercent = (y / rect.height) * 100;
+
+    const updatedLayoutImages = [...currentLayoutImages];
+    const imageObject = { ...updatedLayoutImages[fullscreenImageIndex] };
+    
+    if (imageObject.pins && imageObject.pins[draggingPinIndex]) {
+      const updatedPins = [...imageObject.pins];
+      updatedPins[draggingPinIndex] = {
+        ...updatedPins[draggingPinIndex],
+        x: xPercent,
+        y: yPercent,
+      };
+      imageObject.pins = updatedPins;
+      
+      updatedLayoutImages[fullscreenImageIndex] = imageObject;
+      setCurrentLayoutImages(updatedLayoutImages);
+      setFullscreenImage(imageObject);
+    }
+  };
+
 
   return (
     <div className="mobile-container">
@@ -702,86 +754,145 @@ function EventDetail({ user }) {
         <div 
           style={{
             position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-            backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 9999,
-            display: 'flex', justifyContent: 'center', alignItems: 'center'
+            backgroundColor: 'rgba(0,0,0,0.92)', zIndex: 9999,
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
+            padding: '16px', boxSizing: 'border-box', overflow: 'hidden'
           }}
           onClick={() => { 
-            if (draggingPinIndex === null) {
+            if (draggingPinIndex === null && !hasDraggedRef.current) {
               setFullscreenImage(null); setFullscreenImageIndex(null); 
             }
           }}
         >
           {canEdit && (
-            <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 1, background: 'rgba(0,0,0,0.6)', borderRadius: '8px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={(e) => { e.stopPropagation(); setSelectedPinType('default'); }} style={{ background: selectedPinType === 'default' ? 'var(--accent)' : 'transparent', border: '1px solid white', borderRadius: '4px', padding: '4px' }}>
-                  <img src={pinImages.default} alt="Default Pin" style={{ width: '24px', height: '24px', display: 'block' }} />
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute', top: '16px', left: '16px', zIndex: 10,
+                background: 'rgba(0,0,0,0.75)', borderRadius: '8px', padding: '8px 12px',
+                display: 'flex', flexDirection: 'column', gap: '8px',
+                backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)',
+                maxWidth: 'calc(100vw - 120px)'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px', fontWeight: 600 }}>Pin:</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPinType('default')}
+                  style={{
+                    background: selectedPinType === 'default' ? 'var(--accent)' : 'transparent',
+                    border: '1px solid rgba(255,255,255,0.3)', borderRadius: '4px', padding: '3px', cursor: 'pointer'
+                  }}
+                  title="Default Pin"
+                >
+                  <img src={pinImages.default} alt="Default Pin" style={{ width: '22px', height: '22px', display: 'block' }} />
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); setSelectedPinType('star'); }} style={{ background: selectedPinType === 'star' ? 'var(--accent)' : 'transparent', border: '1px solid white', borderRadius: '4px', padding: '4px' }}>
-                  <img src={pinImages.star} alt="Star Pin" style={{ width: '24px', height: '24px', display: 'block' }} />
+                <button
+                  type="button"
+                  onClick={() => setSelectedPinType('star')}
+                  style={{
+                    background: selectedPinType === 'star' ? 'var(--accent)' : 'transparent',
+                    border: '1px solid rgba(255,255,255,0.3)', borderRadius: '4px', padding: '3px', cursor: 'pointer'
+                  }}
+                  title="Star Pin"
+                >
+                  <img src={pinImages.star} alt="Star Pin" style={{ width: '22px', height: '22px', display: 'block' }} />
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); setSelectedPinType('logo'); }} style={{ background: selectedPinType === 'logo' ? 'var(--accent)' : 'transparent', border: '1px solid white', borderRadius: '4px', padding: '4px' }}>
-                  <img src={pinImages.logo} alt="Logo Pin" style={{ width: '24px', height: '24px', display: 'block' }} />
+                <button
+                  type="button"
+                  onClick={() => setSelectedPinType('logo')}
+                  style={{
+                    background: selectedPinType === 'logo' ? 'var(--accent)' : 'transparent',
+                    border: '1px solid rgba(255,255,255,0.3)', borderRadius: '4px', padding: '3px', cursor: 'pointer'
+                  }}
+                  title="Logo Pin"
+                >
+                  <img src={pinImages.logo} alt="Logo Pin" style={{ width: '22px', height: '22px', display: 'block' }} />
                 </button>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-                <label style={{ color: 'white', fontSize: '12px', fontWeight: '500' }}>Pin Size</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px', fontWeight: '500' }}>Size:</label>
                 <input 
                   type="range" 
-                  min="15" max="60" 
+                  min="16" max="50" 
                   value={pinSize} 
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => { e.stopPropagation(); setPinSize(Number(e.target.value)); }}
+                  onChange={(e) => setPinSize(Number(e.target.value))}
+                  style={{ width: '80px', cursor: 'pointer' }}
                 />
               </div>
             </div>
           )}
-          <div style={{ position: 'absolute', top: '20px', right: '20px', display: 'flex', gap: '10px', alignItems: 'center', zIndex: 10 }}>
+
+          <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '8px', alignItems: 'center', zIndex: 10 }}>
             {canEdit && fullscreenImageIndex !== null && (
               <button
                 style={{
                   background: 'rgba(220, 38, 38, 0.85)', color: '#fff',
-                  border: 'none', borderRadius: '8px', padding: '8px 14px',
-                  fontSize: '13px', fontWeight: '600', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '6px'
+                  border: 'none', borderRadius: '8px', padding: '6px 12px',
+                  fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '4px',
+                  backdropFilter: 'blur(4px)'
                 }}
                 onClick={(e) => { e.stopPropagation(); handleDeleteLayoutImage(fullscreenImageIndex); }}
               >
-                🗑️ Delete Layout
+                🗑️ Delete
               </button>
             )}
             <button 
               style={{
                 background: 'rgba(255,255,255,0.2)', color: '#fff',
-                border: 'none', borderRadius: '50%', width: '40px', height: '40px',
-                fontSize: '20px', cursor: 'pointer', display: 'flex',
-                justifyContent: 'center', alignItems: 'center'
+                border: 'none', borderRadius: '50%', width: '36px', height: '36px',
+                fontSize: '18px', cursor: 'pointer', display: 'flex',
+                justifyContent: 'center', alignItems: 'center',
+                backdropFilter: 'blur(4px)'
               }}
               onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); setFullscreenImageIndex(null); }}
+              aria-label="Close"
             > 
               ✕
             </button>
           </div>
+
+          {/* Tight Image Wrapper — ensures pins are mapped 100% to visible image on all screen sizes */}
           <div
             ref={imageContainerRef}
-            onClick={(e) => { if (draggingPinIndex === null) handleFullscreenClick(e); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (draggingPinIndex === null && !hasDraggedRef.current) {
+                handleFullscreenClick(e);
+              }
+            }}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp} // End drag if mouse leaves container
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleMouseUp}
             style={{
               position: 'relative',
-              width: '95vw',
-              height: '95vh',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
+              display: 'inline-block',
+              maxWidth: '94vw',
+              maxHeight: '82vh',
+              lineHeight: 0,
+              userSelect: 'none',
+              touchAction: 'none',
               cursor: canEdit && draggingPinIndex === null ? 'crosshair' : (draggingPinIndex !== null ? 'grabbing' : 'default'),
             }}
           >
             <img 
               src={fullscreenImage.url} 
               alt="Fullscreen Layout" 
-              style={{ display: 'block', maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} 
+              draggable={false}
+              style={{
+                display: 'block',
+                maxWidth: '94vw',
+                maxHeight: '82vh',
+                width: 'auto',
+                height: 'auto',
+                objectFit: 'contain',
+                borderRadius: '6px',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+                pointerEvents: 'none',
+              }} 
             />
             {fullscreenImage.pins?.map((pin, index) => {
               const style = {
@@ -789,20 +900,26 @@ function EventDetail({ user }) {
                 left: `${pin.x}%`,
                 top: `${pin.y}%`,
                 transform: 'translate(-50%, -50%)',
-                width: `${pinSize}px`, height: `${pinSize}px`, 
+                width: `${pinSize}px`,
+                height: `${pinSize}px`,
                 cursor: canEdit ? (draggingPinIndex === index ? 'grabbing' : 'grab') : 'default',
+                pointerEvents: 'auto',
+                touchAction: 'none',
               };
               if (pin.type === 'star') {
-                style.filter = 'drop-shadow(0px 0px 2px rgba(0, 0, 0, 0.9))';
+                style.filter = 'drop-shadow(0px 0px 3px rgba(0, 0, 0, 0.9))';
               }
               return (
                 <img 
                   key={index}
                   src={pinImages[pin.type] || pinImages.default}
                   alt="Pin"
+                  draggable={false}
                   onMouseDown={canEdit ? (e) => handlePinMouseDown(e, index) : undefined}
+                  onTouchStart={canEdit ? (e) => handlePinTouchStart(e, index) : undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (hasDraggedRef.current) return;
                     if (canEdit && window.confirm("Are you sure you want to delete this pin?")) {
                       handlePinDelete(e, index);
                     }
@@ -884,107 +1001,7 @@ function EventDetail({ user }) {
             </div>
           )}
         </div>
-        
-        {/* Brands Section — powered by global assignments */}
-        <div style={{ marginTop: 'var(--space-6)', textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-            <h2 style={{ fontSize: 'var(--font-xl)', margin: 0 }}>{t('attendingBrands')}</h2>
-            {canEdit && (
-              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => downloadBrandAssignmentTemplate(globalBrands)}
-                  className="btn btn-secondary btn-sm"
-                  title="Download Excel template for importing brands"
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <span>📄 Download Template</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAssignModalTab('excel');
-                    setShowAssignBrandModal(true);
-                  }}
-                  className="btn btn-secondary btn-sm"
-                  title="Import brands using Excel"
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <span>📥 Import Excel</span>
-                </button>
-                {assignedBrands.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleExportAssignedBrands}
-                    className="btn btn-secondary btn-sm"
-                    title="Export currently assigned brands to Excel"
-                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <span>📤 Export Brands</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAssignModalTab('single');
-                    setShowAssignBrandModal(true);
-                  }}
-                  className="btn btn-primary btn-sm"
-                >
-                  + Assign Brand
-                </button>
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {loadingBrands && <p style={{ color: 'var(--text-muted)' }}>Loading brands...</p>}
-            {!loadingBrands && assignedBrands.length === 0 && (
-              <EmptyState icon="🏢" message="No brands assigned to this event yet." />
-            )}
-            {assignedBrands.map((assignment) => (
-              <div
-                key={assignment.combinedId}
-                onClick={() => setSelectedBrandDetail(assignment)}
-                className="touchable-card"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: 'var(--space-2) var(--space-3)',
-                  cursor: 'pointer',
-                  borderRadius: 'var(--radius-md)',
-                  gap: 'var(--space-3)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0, flex: 1 }}>
-                  {/* Logo */}
-                  <BrandLogo url={assignment.logoUrl} name={assignment.brandName} size={36} />
-                  {/* Name and Badges */}
-                  <div style={{ minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <h4 style={{ margin: 0, fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {assignment.brandName}
-                    </h4>
-                    <span className="badge badge-solid" style={{ fontSize: '10px', textTransform: 'capitalize' }}>
-                      {assignment.rank}
-                    </span>
-                    {assignment.isTreasureHolder && (
-                      <span className="badge badge-warning" style={{ fontSize: '10px' }}>⭐ Treasure</span>
-                    )}
-                  </div>
-                </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}>
-                  {assignment.position ? (
-                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Pos: {assignment.position}</span>
-                  ) : (
-                    canEdit && <span style={{ fontSize: '10px', color: 'var(--text-muted)', border: '1px dashed var(--border)', padding: '1px 5px', borderRadius: '4px' }}>+ Position</span>
-                  )}
-                  <span style={{ color: 'var(--text-muted)', fontSize: 'var(--font-md)' }}>›</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
 
         {/* Brand Detail Modal */}
         {selectedBrandDetail && (
@@ -1301,6 +1318,145 @@ function EventDetail({ user }) {
               </button>
             </>
           )}
+        </div>
+
+        {/* Attending Brands Section — pushed to the bottom with shorten/expand support */}
+        <div style={{ marginTop: 'var(--space-6)', textAlign: 'left' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <h2 style={{ fontSize: 'var(--font-xl)', margin: 0 }}>{t('attendingBrands')}</h2>
+              {assignedBrands.length > 0 && (
+                <span className="badge badge-solid" style={{ fontSize: 'var(--font-xs)', padding: '2px 8px' }}>
+                  {assignedBrands.length}
+                </span>
+              )}
+            </div>
+            {canEdit && (
+              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => downloadBrandAssignmentTemplate(globalBrands)}
+                  className="btn btn-secondary btn-sm"
+                  title="Download Excel template for importing brands"
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <span>📄 Download Template</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignModalTab('excel');
+                    setShowAssignBrandModal(true);
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  title="Import brands using Excel"
+                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <span>📥 Import Excel</span>
+                </button>
+                {assignedBrands.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleExportAssignedBrands}
+                    className="btn btn-secondary btn-sm"
+                    title="Export currently assigned brands to Excel"
+                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <span>📤 Export Brands</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAssignModalTab('single');
+                    setShowAssignBrandModal(true);
+                  }}
+                  className="btn btn-primary btn-sm"
+                >
+                  + Assign Brand
+                </button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            {loadingBrands && <p style={{ color: 'var(--text-muted)' }}>{t('loading')}</p>}
+            {!loadingBrands && assignedBrands.length === 0 && (
+              <EmptyState icon="🏢" message={t('noBrandsFound', 'No brands assigned to this event yet.')} />
+            )}
+            {displayedBrands.map((assignment) => (
+              <div
+                key={assignment.combinedId}
+                onClick={() => setSelectedBrandDetail(assignment)}
+                className="touchable-card"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: 'var(--space-2) var(--space-3)',
+                  cursor: 'pointer',
+                  borderRadius: 'var(--radius-md)',
+                  gap: 'var(--space-3)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0, flex: 1 }}>
+                  {/* Logo */}
+                  <BrandLogo url={assignment.logoUrl} name={assignment.brandName} size={36} />
+                  {/* Name and Badges */}
+                  <div style={{ minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <h4 style={{ margin: 0, fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {assignment.brandName}
+                    </h4>
+                    <span className="badge badge-solid" style={{ fontSize: '10px', textTransform: 'capitalize' }}>
+                      {assignment.rank}
+                    </span>
+                    {assignment.isTreasureHolder && (
+                      <span className="badge badge-warning" style={{ fontSize: '10px' }}>⭐ Treasure</span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}>
+                  {assignment.position ? (
+                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Pos: {assignment.position}</span>
+                  ) : (
+                    canEdit && <span style={{ fontSize: '10px', color: 'var(--text-muted)', border: '1px dashed var(--border)', padding: '1px 5px', borderRadius: '4px' }}>+ Position</span>
+                  )}
+                  <span style={{ color: 'var(--text-muted)', fontSize: 'var(--font-md)' }}>›</span>
+                </div>
+              </div>
+            ))}
+
+            {/* Expand / Collapse toggle if total brands exceed limit */}
+            {assignedBrands.length > BRAND_COLLAPSE_LIMIT && (
+              <button
+                type="button"
+                onClick={() => setShowAllBrands(prev => !prev)}
+                className="btn btn-secondary"
+                style={{
+                  marginTop: 'var(--space-2)',
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  fontSize: 'var(--font-sm)',
+                  padding: 'var(--space-2) var(--space-3)',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                {showAllBrands ? (
+                  <>▲ {t('showLessBrands', 'Show fewer brands')}</>
+                ) : (
+                  <>
+                    ▼ {t('showAllBrands', {
+                      count: assignedBrands.length,
+                      defaultValue: `Show all ${assignedBrands.length} brands (${assignedBrands.length - BRAND_COLLAPSE_LIMIT} more)`
+                    })}
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
