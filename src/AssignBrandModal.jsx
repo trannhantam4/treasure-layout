@@ -1,56 +1,15 @@
 import { useState, useRef, memo } from 'react';
-import * as XLSX from 'xlsx';
 import { assignBrandToEvent, batchAssignBrandsToEvent } from './Brand';
 import { useBrands } from './hooks/useBrands';
 import { assignmentKey } from './utils/keys';
 import BrandLogo from './components/BrandLogo';
 import SearchInput from './SearchInput';
+import Pagination from './components/Pagination';
 import { modalOverlayStyle, modalCardStyle, modalCloseBtnStyle } from './Modal';
+import { useTranslation } from 'react-i18next';
+import { downloadBrandAssignmentTemplate } from './utils/brandExcel';
 
 const RANKS = ['gold', 'silver', 'bronze', 'standard'];
-
-/**
- * Generate and download the Excel import template for brand assignment.
- * Sheet 1: Template with column headers and sample rows.
- * Sheet 2: Reference catalog of all existing brands in the system.
- */
-export const downloadBrandAssignmentTemplate = (brands = []) => {
-  const headers = [['Brand Name', 'Rank', 'Booth Position', 'Brand ID (Optional)']];
-  const sampleRows = [
-    ['Example Tech Corp', 'gold', 'A-01', ''],
-    ['Global Solutions', 'silver', 'Booth 12', ''],
-    ['Innovative Apps', 'standard', 'Hall B-05', ''],
-  ];
-
-  const templateWs = XLSX.utils.aoa_to_sheet([...headers, ...sampleRows]);
-  templateWs['!cols'] = [
-    { wch: 25 },
-    { wch: 15 },
-    { wch: 20 },
-    { wch: 20 },
-  ];
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, templateWs, 'Brand Import Template');
-
-  // Sheet 2: Reference list of available brands in catalog
-  if (brands && brands.length > 0) {
-    const catalogRows = [
-      ['Brand ID', 'Brand Name', 'Field of Work', 'Company Email'],
-      ...brands.map((b) => [
-        b.brandId || '',
-        b.brandName || '',
-        b.fieldOfWork || '',
-        b.companyEmail || '',
-      ]),
-    ];
-    const catalogWs = XLSX.utils.aoa_to_sheet(catalogRows);
-    catalogWs['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 20 }, { wch: 25 }];
-    XLSX.utils.book_append_sheet(wb, catalogWs, 'Available Brands Catalog');
-  }
-
-  XLSX.writeFile(wb, 'TreasureLayout_Brand_Assignment_Template.xlsx');
-};
 
 const AssignBrandModal = memo(({
   event,
@@ -60,6 +19,7 @@ const AssignBrandModal = memo(({
   user,
   initialTab = 'single'
 }) => {
+  const { t } = useTranslation();
   const { brands, loading } = useBrands();
   const [tab, setTab] = useState(initialTab); // 'single' | 'excel'
 
@@ -79,6 +39,14 @@ const AssignBrandModal = memo(({
   const [batchSuccessMsg, setBatchSuccessMsg] = useState('');
   const fileInputRef = useRef(null);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const BRANDS_PER_PAGE = 6;
+
+  const handleSearchChange = (val) => {
+    setSearch(val);
+    setCurrentPage(1);
+  };
+
   const filteredBrands = brands.filter((b) => {
     const term = search.toLowerCase();
     return (
@@ -87,13 +55,19 @@ const AssignBrandModal = memo(({
     );
   });
 
+  const totalPages = Math.ceil(filteredBrands.length / BRANDS_PER_PAGE);
+  const displayedBrands = filteredBrands.slice(
+    (currentPage - 1) * BRANDS_PER_PAGE,
+    currentPage * BRANDS_PER_PAGE
+  );
+
   const isAlreadyAssigned = (b) =>
     assignedBrandIds.includes(assignmentKey(event.eventId, b.brandId));
 
   /* ─── Single Brand Assign ─── */
   const handleAssignSingle = async () => {
     if (!selected) {
-      setError('Please select a brand.');
+      setError(t('selectBrandPrompt'));
       return;
     }
     setSaving(true);
@@ -123,8 +97,9 @@ const AssignBrandModal = memo(({
     setBatchSuccessMsg('');
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
+        const XLSX = await import('xlsx');
         const bstr = evt.target.result;
         const workbook = XLSX.read(bstr, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
@@ -280,7 +255,7 @@ const AssignBrandModal = memo(({
       >
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>Assign Brands to Event</h2>
+          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>{t('assignBrandsTitle')}</h2>
           <button onClick={onClose} style={modalCloseBtnStyle} aria-label="Close">✕</button>
         </div>
 
@@ -298,7 +273,7 @@ const AssignBrandModal = memo(({
             className={`btn btn-sm ${tab === 'single' ? 'btn-primary' : 'btn-ghost'}`}
             style={{ fontWeight: 600 }}
           >
-            👤 Manual Select
+            👤 {t('manualSelectTab')}
           </button>
           <button
             type="button"
@@ -306,7 +281,7 @@ const AssignBrandModal = memo(({
             className={`btn btn-sm ${tab === 'excel' ? 'btn-primary' : 'btn-ghost'}`}
             style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <span>📊 Excel Bulk Import</span>
+            <span>📊 {t('excelBulkTab')}</span>
             {excelRows.length > 0 && (
               <span className="badge badge-accent" style={{ fontSize: '10px', padding: '1px 6px' }}>
                 {excelRows.length}
@@ -320,17 +295,17 @@ const AssignBrandModal = memo(({
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <SearchInput
               searchTerm={search}
-              setSearchTerm={setSearch}
-              placeholder="Search brand by name or field..."
+              setSearchTerm={handleSearchChange}
+              placeholder={t('searchBrandsPlaceholder')}
               style={{ marginBottom: 'var(--space-3)' }}
             />
 
             <div style={listStyle}>
-              {loading && <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Loading brands...</p>}
+              {loading && <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t('loading')}</p>}
               {!loading && filteredBrands.length === 0 && (
-                <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No brands found.</p>
+                <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t('noBrandsInCatalog')}</p>
               )}
-              {filteredBrands.map((b) => {
+              {displayedBrands.map((b) => {
                 const assigned = isAlreadyAssigned(b);
                 const isSelected = selected?.brandId === b.brandId;
                 return (
@@ -353,7 +328,7 @@ const AssignBrandModal = memo(({
                       <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{b.fieldOfWork}</div>
                     </div>
                     {assigned && (
-                      <span className="badge badge-accent" style={{ flexShrink: 0 }}>Assigned</span>
+                      <span className="badge badge-accent" style={{ flexShrink: 0 }}>{t('alreadyAssigned')}</span>
                     )}
                     {isSelected && !assigned && (
                       <span style={{ fontSize: '1rem', flexShrink: 0, color: 'var(--accent)' }}>✓</span>
@@ -363,14 +338,25 @@ const AssignBrandModal = memo(({
               })}
             </div>
 
+            {!loading && (
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={filteredBrands.length}
+                itemsPerPage={BRANDS_PER_PAGE}
+                onPageChange={setCurrentPage}
+                noun="brands"
+              />
+            )}
+
             {selected && (
               <div style={{ marginTop: 'var(--space-4)', padding: 'var(--space-4)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-input)' }}>
                 <p style={{ margin: '0 0 var(--space-3)', fontWeight: '600', color: 'var(--text-primary)' }}>
-                  Assigning: <em>{selected.brandName}</em>
+                  {t('assigningLabel')} <em>{selected.brandName}</em>
                 </p>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
                   <div>
-                    <label htmlFor="assignRank" className="form-label form-label-bold">Rank</label>
+                    <label htmlFor="assignRank" className="form-label form-label-bold">{t('rankLabel')}</label>
                     <select
                       id="assignRank"
                       value={rank}
@@ -386,7 +372,7 @@ const AssignBrandModal = memo(({
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="assignPosition" className="form-label form-label-bold">Booth Position</label>
+                    <label htmlFor="assignPosition" className="form-label form-label-bold">{t('boothPositionLabel')}</label>
                     <input
                       id="assignPosition"
                       value={position}
@@ -403,13 +389,13 @@ const AssignBrandModal = memo(({
             {error && <p style={{ color: 'var(--danger)', margin: 'var(--space-3) 0 0', fontSize: 'var(--font-sm)' }}>{error}</p>}
 
             <div className="btn-group" style={{ marginTop: 'var(--space-4)', marginBottom: 0 }}>
-              <button onClick={onClose} className="btn btn-secondary btn-flex">Cancel</button>
+              <button onClick={onClose} className="btn btn-secondary btn-flex">{t('cancel')}</button>
               <button
                 onClick={handleAssignSingle}
                 disabled={saving || !selected}
                 className="btn btn-primary btn-flex"
               >
-                {saving ? 'Assigning...' : 'Assign Brand'}
+                {saving ? t('saving') : t('assignBrandSubmit')}
               </button>
             </div>
           </div>
@@ -433,10 +419,10 @@ const AssignBrandModal = memo(({
             }}>
               <div>
                 <span style={{ fontSize: 'var(--font-xs)', fontWeight: 700, color: 'var(--text-primary)', display: 'block' }}>
-                  Bulk Brand Assignment via Excel
+                  {t('bulkAssignTitle')}
                 </span>
                 <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                  Download the official template or use your own .xlsx/.xls file.
+                  {t('bulkAssignDesc')}
                 </span>
               </div>
               <button
@@ -445,7 +431,7 @@ const AssignBrandModal = memo(({
                 className="btn btn-secondary btn-sm"
                 style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
               >
-                <span>📥 Download Template</span>
+                <span>📥 {t('downloadTemplateBtn')}</span>
               </button>
             </div>
 
@@ -476,16 +462,16 @@ const AssignBrandModal = memo(({
                 {uploadFileName ? '📄' : '📁'}
               </span>
               <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)', color: 'var(--text-primary)' }}>
-                {uploadFileName ? uploadFileName : 'Click to select or drop Excel file'}
+                {uploadFileName ? uploadFileName : t('selectExcelFile')}
               </div>
               <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
-                {uploadFileName ? 'Click to choose a different file' : 'Accepts .xlsx and .xls (Columns: Brand Name, Rank, Booth Position)'}
+                {uploadFileName ? t('changeExcelFile') : t('acceptsExcelFormats')}
               </p>
             </div>
 
             {isParsing && (
               <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: 'var(--font-sm)' }}>
-                Parsing Excel file...
+                {t('parsingExcel')}
               </p>
             )}
 
@@ -495,21 +481,21 @@ const AssignBrandModal = memo(({
                 {/* Status Badges */}
                 <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: 'var(--space-2)' }}>
                   <span className="badge" style={{ background: 'var(--success)', color: '#fff', fontSize: '11px' }}>
-                    Ready to assign: {readyCount}
+                    {t('readyToAssign')} {readyCount}
                   </span>
                   {alreadyCount > 0 && (
                     <span className="badge" style={{ background: '#f59e0b', color: '#111', fontSize: '11px' }}>
-                      Already assigned: {alreadyCount}
+                      {t('alreadyAssigned')} {alreadyCount}
                     </span>
                   )}
                   {notFoundCount > 0 && (
                     <span className="badge" style={{ background: 'var(--danger)', color: '#fff', fontSize: '11px' }}>
-                      Not in catalog: {notFoundCount}
+                      {t('notInCatalog')} {notFoundCount}
                     </span>
                   )}
                   {duplicateCount > 0 && (
                     <span className="badge" style={{ background: 'var(--text-muted)', color: '#fff', fontSize: '11px' }}>
-                      Duplicate: {duplicateCount}
+                      {t('duplicate')} {duplicateCount}
                     </span>
                   )}
                 </div>
@@ -526,9 +512,9 @@ const AssignBrandModal = memo(({
                     <thead>
                       <tr style={{ background: 'var(--bg-card-solid)', borderBottom: '1px solid var(--border)' }}>
                         <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>#</th>
-                        <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>Brand Name</th>
-                        <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>Rank</th>
-                        <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>Position</th>
+                        <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>{t('brandName')}</th>
+                        <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>{t('rankLabel')}</th>
+                        <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600 }}>{t('boothPositionLabel')}</th>
                         <th style={{ padding: '6px 10px', color: 'var(--text-muted)', fontWeight: 600, textAlign: 'right' }}>Status</th>
                       </tr>
                     </thead>
@@ -562,13 +548,13 @@ const AssignBrandModal = memo(({
                               <span style={{ color: 'var(--success)', fontWeight: 700 }}>✓ Ready</span>
                             )}
                             {r.status === 'already_assigned' && (
-                              <span style={{ color: '#f59e0b', fontWeight: 600 }}>Assigned</span>
+                              <span style={{ color: '#f59e0b', fontWeight: 600 }}>{t('alreadyAssigned')}</span>
                             )}
                             {r.status === 'not_found' && (
                               <span style={{ color: 'var(--danger)', fontWeight: 600 }}>Not found</span>
                             )}
                             {r.status === 'duplicate' && (
-                              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>Duplicate</span>
+                              <span style={{ color: 'var(--text-muted)', fontWeight: 600 }}>{t('duplicate')}</span>
                             )}
                           </td>
                         </tr>
@@ -585,7 +571,7 @@ const AssignBrandModal = memo(({
             {/* Actions */}
             <div className="btn-group" style={{ marginTop: 'var(--space-4)', marginBottom: 0 }}>
               <button type="button" onClick={onClose} className="btn btn-secondary btn-flex">
-                Cancel
+                {t('cancel')}
               </button>
               <button
                 type="button"
@@ -597,7 +583,7 @@ const AssignBrandModal = memo(({
                   opacity: readyCount === 0 || savingBatch ? 0.5 : 1,
                 }}
               >
-                {savingBatch ? 'Assigning...' : `Assign ${readyCount} Brand${readyCount === 1 ? '' : 's'}`}
+                {savingBatch ? t('saving') : `${t('assignBrandSubmit')} (${readyCount})`}
               </button>
             </div>
           </div>

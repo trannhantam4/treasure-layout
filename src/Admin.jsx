@@ -6,29 +6,21 @@ import SearchInput from './SearchInput';
 import { canManage } from './utils/auth';
 import { useBrands } from './hooks/useBrands';
 import EmptyState from './components/EmptyState';
+import Pagination from './components/Pagination';
 import { toast } from './utils/toast';
+import { useTranslation } from 'react-i18next';
 
 const ALL_ROLES = ['visitor', 'vip buyer', 'manager', 'admin'];
 
 function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
-  const [localSelection, setLocalSelection] = useState('');
-  const [isEditingCustom, setIsEditingCustom] = useState(false);
-  const [customVal, setCustomVal] = useState(user.company || '');
+  const { t } = useTranslation();
+  const currentCompany = user.company || '';
+  const matchingBrand = brands.find(b => b.brandName.toLowerCase() === currentCompany.toLowerCase());
+  const initialSelection = matchingBrand ? matchingBrand.brandId : (currentCompany ? 'other' : '');
 
-  useEffect(() => {
-    const currentCompany = user.company || '';
-    const matchingBrand = brands.find(b => b.brandName.toLowerCase() === currentCompany.toLowerCase());
-    if (matchingBrand) {
-      setLocalSelection(matchingBrand.brandId);
-      setIsEditingCustom(false);
-    } else if (currentCompany) {
-      setLocalSelection('other');
-      setCustomVal(currentCompany);
-    } else {
-      setLocalSelection('');
-      setIsEditingCustom(false);
-    }
-  }, [user.company, brands]);
+  const [localSelection, setLocalSelection] = useState(initialSelection);
+  const [isEditingCustom, setIsEditingCustom] = useState(false);
+  const [customVal, setCustomVal] = useState(currentCompany);
 
   return (
     <div className="touchable-card" style={{ padding: 'var(--space-4)', flexDirection: 'column', gap: 'var(--space-2)', cursor: 'default' }}>
@@ -41,7 +33,7 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'var(--space-2)', borderTop: '1px solid var(--border)', paddingTop: 'var(--space-2)' }}>
-        <span style={{ fontWeight: '500', fontSize: 'var(--font-sm)' }}>Role: </span>
+        <span style={{ fontWeight: '500', fontSize: 'var(--font-sm)' }}>{t('roleLabel')} </span>
         <select
           aria-label={`Role for ${user.name}`}
           value={user.role || 'visitor'}
@@ -59,7 +51,7 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', marginTop: 'var(--space-2)', borderTop: '1px solid var(--border)', paddingTop: 'var(--space-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontWeight: '500', fontSize: 'var(--font-sm)' }}>Company: </span>
+          <span style={{ fontWeight: '500', fontSize: 'var(--font-sm)' }}>{t('companyLabel')} </span>
           <select
             value={localSelection}
             onChange={(e) => {
@@ -78,11 +70,11 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
             }}
             style={{ padding: 'var(--space-1) var(--space-2)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 'var(--font-sm)' }}
           >
-            <option value="">None / Unknown</option>
+            <option value="">{t('noneUnknown')}</option>
             {brands.map(b => (
               <option key={b.brandId} value={b.brandId}>{b.brandName}</option>
             ))}
-            <option value="other">Other...</option>
+            <option value="other">{t('otherOption')}</option>
           </select>
         </div>
 
@@ -90,7 +82,7 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
           <div style={{ display: 'flex', gap: '4px', marginTop: 'var(--space-1)', justifyContent: 'flex-end' }}>
             <input
               type="text"
-              placeholder="Type company name..."
+              placeholder={t('typeCompanyName')}
               value={customVal}
               onChange={(e) => setCustomVal(e.target.value)}
               style={{ padding: '4px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 'var(--font-xs)', width: '160px' }}
@@ -106,7 +98,7 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
               className="btn btn-primary"
               style={{ padding: '2px 8px', fontSize: 'var(--font-xs)' }}
             >
-              Save
+              {t('save')}
             </button>
           </div>
         )}
@@ -119,6 +111,7 @@ const MemoizedUserRow = memo(UserRow);
 
 function Admin({ user }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -164,7 +157,7 @@ function Admin({ user }) {
     try {
       const { doc: docRef, updateDoc } = await import('firebase/firestore');
       await updateDoc(docRef(db, 'users', userId), { role: newRole });
-      toast.success(`User role updated to ${newRole}`);
+      toast.success(t('userRoleUpdated', { role: newRole }));
     } catch (error) {
       console.error("Error updating role:", error);
       toast.error("Failed to update user role.");
@@ -190,11 +183,19 @@ function Admin({ user }) {
         action: 'change_user_brand'
       });
 
-      toast.success(`Successfully changed company of ${targetUser.name} to "${newCompany}".`);
+      toast.success(t('userCompanyUpdated', { name: targetUser.name, company: newCompany }));
     } catch (error) {
       console.error("Error updating user company:", error);
       toast.error("Failed to update user company.");
     }
+  };
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const USERS_PER_PAGE = 10;
+
+  const handleSearchChange = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
   };
 
   const filteredUsers = users.filter(u =>
@@ -202,20 +203,26 @@ function Admin({ user }) {
     u.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const totalPages = Math.ceil(filteredUsers.length / USERS_PER_PAGE);
+  const displayedUsers = filteredUsers.slice(
+    (currentPage - 1) * USERS_PER_PAGE,
+    currentPage * USERS_PER_PAGE
+  );
+
   return (
     <div className="mobile-container page-enter">
       <div className="scroll-view">
-        <h1 style={{ fontSize: 'var(--font-2xl)' }}>User Manager</h1>
-        <SearchInput searchTerm={searchTerm} setSearchTerm={setSearchTerm} placeholder="Search users..." />
+        <h1 style={{ fontSize: 'var(--font-2xl)' }}>{t('users')}</h1>
+        <SearchInput searchTerm={searchTerm} setSearchTerm={handleSearchChange} placeholder={t('searchUsersPlaceholder')} />
 
-        {loading && <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading users...</p>}
+        {loading && <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>{t('loading')}</p>}
 
         {!loading && filteredUsers.length === 0 && (
-          <EmptyState icon="👥" message="No users found." />
+          <EmptyState icon="👥" message={t('noUsersFound')} />
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-          {filteredUsers.map(u => (
+          {displayedUsers.map(u => (
             <MemoizedUserRow 
               key={u.id} 
               user={u} 
@@ -225,6 +232,17 @@ function Admin({ user }) {
             />
           ))}
         </div>
+
+        {!loading && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filteredUsers.length}
+            itemsPerPage={USERS_PER_PAGE}
+            onPageChange={setCurrentPage}
+            noun="users"
+          />
+        )}
       </div>
     </div>
   );

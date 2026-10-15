@@ -16,17 +16,17 @@ const TITLES = {
 };
 
 const BORDER_COLORS = {
-  success: 'var(--border-gold-strong, #dfb76c)',
+  success: 'var(--border-gold-strong, #0284c7)',
   error: 'rgba(239, 68, 68, 0.65)',
-  warning: 'rgba(245, 158, 11, 0.65)',
-  info: 'var(--border-gold, rgba(223, 183, 108, 0.4))',
+  warning: 'rgba(233, 71, 14, 0.65)',
+  info: 'var(--border-gold, rgba(2, 132, 199, 0.4))',
 };
 
 const BADGE_BG = {
-  success: 'linear-gradient(135deg, rgba(223, 183, 108, 0.25), rgba(52, 211, 153, 0.2))',
+  success: 'linear-gradient(135deg, rgba(2, 132, 199, 0.25), rgba(52, 211, 153, 0.2))',
   error: 'linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(185, 28, 28, 0.15))',
-  warning: 'linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(180, 83, 9, 0.15))',
-  info: 'linear-gradient(135deg, rgba(223, 183, 108, 0.25), rgba(179, 134, 43, 0.15))',
+  warning: 'linear-gradient(135deg, rgba(233, 71, 14, 0.25), rgba(217, 119, 6, 0.15))',
+  info: 'linear-gradient(135deg, rgba(2, 132, 199, 0.25), rgba(56, 189, 248, 0.15))',
 };
 
 function ToastItem({ toast, onDismiss }) {
@@ -62,7 +62,7 @@ function ToastItem({ toast, onDismiss }) {
         WebkitBackdropFilter: 'blur(16px)',
         border: `1px solid ${BORDER_COLORS[type] || 'var(--border-gold)'}`,
         borderRadius: 'var(--radius-lg, 16px)',
-        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.45), 0 0 24px rgba(223, 183, 108, 0.18)',
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.45), 0 0 24px rgba(2, 132, 199, 0.2)',
         color: 'var(--text-primary)',
         width: '100%',
         maxWidth: '420px',
@@ -103,7 +103,7 @@ function ToastItem({ toast, onDismiss }) {
             fontWeight: 800,
             letterSpacing: '0.12em',
             textTransform: 'uppercase',
-            color: 'var(--gold-light, #dfb76c)',
+            color: 'var(--accent, #0284c7)',
             marginBottom: '3px',
           }}
         >
@@ -138,7 +138,7 @@ function ToastItem({ toast, onDismiss }) {
           borderRadius: 'var(--radius-sm)',
           transition: 'color var(--duration-fast)',
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--gold-light)'; }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--accent)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-muted)'; }}
       >
         ✕
@@ -151,7 +151,7 @@ function ToastItem({ toast, onDismiss }) {
           bottom: 0,
           left: 0,
           height: '2.5px',
-          background: 'var(--gradient-accent, #dfb76c)',
+          background: 'var(--gradient-accent, #e9470e)',
           width: '100%',
           transformOrigin: 'left',
           animation: `toastProgress ${toast.duration || 3800}ms linear forwards`,

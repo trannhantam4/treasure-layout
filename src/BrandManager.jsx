@@ -9,13 +9,16 @@ import { getCachedBrandCatalog, cacheBrandCatalog } from './storage';
 import { canManage } from './utils/auth';
 import BrandLogo from './components/BrandLogo';
 import EmptyState from './components/EmptyState';
+import Pagination from './components/Pagination';
 import { modalOverlayStyle, modalCardStyle, modalCloseBtnStyle } from './Modal';
+import { useTranslation } from 'react-i18next';
 import {
   downloadBrandCatalogTemplate,
   exportBrandCatalog,
   parseBrandCatalogExcel,
 } from './utils/brandExcel';
 import { toast } from './utils/toast';
+import { confirmDialog } from './utils/confirm';
 
 const RANK_COLORS = {
   gold: 'var(--gold)',
@@ -26,6 +29,7 @@ const RANK_COLORS = {
 
 function BrandManager({ user }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const canEdit = canManage(user);
 
   const [brands, setBrands] = useState([]);
@@ -74,7 +78,7 @@ function BrandManager({ user }) {
     try {
       await createBrand(formData, user.uid);
       setShowFormModal(false);
-      toast.success('Brand created successfully!');
+      toast.success(t('brandCreatedSuccess'));
     } catch (err) {
       toast.error('Failed to create brand: ' + err.message);
     } finally {
@@ -89,7 +93,7 @@ function BrandManager({ user }) {
       await updateBrand(editTarget.docId, formData);
       setEditTarget(null);
       setShowFormModal(false);
-      toast.success('Brand updated successfully!');
+      toast.success(t('brandUpdatedSuccess'));
     } catch (err) {
       toast.error('Failed to update brand: ' + err.message);
     } finally {
@@ -98,10 +102,17 @@ function BrandManager({ user }) {
   };
 
   const handleDelete = async (brand) => {
-    if (!window.confirm(`Delete brand "${brand.brandName}"? This will also remove all its event assignments.`)) return;
+    const ok = await confirmDialog({
+      title: t('confirmDeleteBrandTitle'),
+      message: t('confirmDeleteBrandMsg', { name: brand.brandName }),
+      confirmText: t('deleteBrandConfirmBtn'),
+      confirmVariant: 'danger',
+      icon: '🗑️',
+    });
+    if (!ok) return;
     try {
       await deleteBrand(brand.docId);
-      toast.success('Brand deleted successfully!');
+      toast.success(t('brandDeletedSuccess'));
     } catch (err) {
       toast.error('Failed to delete brand: ' + err.message);
     }
@@ -171,12 +182,26 @@ function BrandManager({ user }) {
     }
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const BRANDS_PER_PAGE = 8;
+
+  const handleSearchChange = (term) => {
+    setSearchTerm(term);
+    setCurrentPage(1);
+  };
+
   const filtered = brands.filter((b) => {
     const term = searchTerm.toLowerCase();
     return b.brandName?.toLowerCase().includes(term) ||
            b.fieldOfWork?.toLowerCase().includes(term) ||
            b.companyEmail?.toLowerCase().includes(term);
   });
+
+  const totalPages = Math.ceil(filtered.length / BRANDS_PER_PAGE);
+  const displayedBrands = filtered.slice(
+    (currentPage - 1) * BRANDS_PER_PAGE,
+    currentPage * BRANDS_PER_PAGE
+  );
 
   return (
     <div className="mobile-container page-enter">
@@ -192,7 +217,7 @@ function BrandManager({ user }) {
 
         {/* Header with Excel Actions */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-          <h1 style={{ margin: 0, fontSize: 'var(--font-2xl)' }}>Brand Manager</h1>
+          <h1 style={{ margin: 0, fontSize: 'var(--font-2xl)' }}>{t('brandManagerTitle')}</h1>
           <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
             <button
               type="button"
@@ -201,7 +226,7 @@ function BrandManager({ user }) {
               title="Download Excel template for importing brands"
               style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
             >
-              <span>📄 Download Template</span>
+              <span>📄 {t('downloadTemplateBtn')}</span>
             </button>
             <button
               type="button"
@@ -210,7 +235,7 @@ function BrandManager({ user }) {
               title="Bulk import brands from an Excel file"
               style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
             >
-              <span>📥 Import Excel</span>
+              <span>📥 {t('importExcelBtn')}</span>
             </button>
             {brands.length > 0 && (
               <button
@@ -220,28 +245,28 @@ function BrandManager({ user }) {
                 title="Export all brands to an Excel file"
                 style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
               >
-                <span>📤 Export Brands</span>
+                <span>📤 {t('exportBrandsBtn')}</span>
               </button>
             )}
             <button
               onClick={() => { setEditTarget(null); setShowFormModal(true); }}
               className="btn btn-primary btn-sm"
             >
-              + Create Brand
+              {t('createBrandBtn')}
             </button>
           </div>
         </div>
 
-        <SearchInput searchTerm={searchTerm} setSearchTerm={setSearchTerm} placeholder="Search brands..." />
+        <SearchInput searchTerm={searchTerm} setSearchTerm={handleSearchChange} placeholder={t('searchBrandsPlaceholder')} />
 
-        {loading && <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</p>}
+        {loading && <p style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t('loading')}</p>}
 
         {!loading && filtered.length === 0 && (
-          <EmptyState icon="🏢" message="No brands yet. Create the first one or import from Excel!" />
+          <EmptyState icon="🏢" message={t('noBrandsInCatalog')} />
         )}
 
         {/* Brand cards */}
-        {filtered.map((brand) => (
+        {displayedBrands.map((brand) => (
           <div key={brand.brandId} className="touchable-card" style={{ flexDirection: 'column', padding: 'var(--space-4)', cursor: 'default' }}>
             <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-start' }}>
               {/* Logo */}
@@ -264,8 +289,8 @@ function BrandManager({ user }) {
 
               {/* Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', flexShrink: 0 }}>
-                <button onClick={() => { setEditTarget(brand); setShowFormModal(true); }} className="btn btn-ghost btn-sm" aria-label={`Edit ${brand.brandName}`} title="Edit">✏️</button>
-                <button onClick={() => handleDelete(brand)} className="btn btn-ghost btn-sm" aria-label={`Delete ${brand.brandName}`} title="Delete">🗑️</button>
+                <button onClick={() => { setEditTarget(brand); setShowFormModal(true); }} className="btn btn-ghost btn-sm" aria-label={`Edit ${brand.brandName}`} title={t('edit')}>✏️</button>
+                <button onClick={() => handleDelete(brand)} className="btn btn-ghost btn-sm" aria-label={`Delete ${brand.brandName}`} title={t('delete')}>🗑️</button>
               </div>
             </div>
 
@@ -275,14 +300,14 @@ function BrandManager({ user }) {
               className="btn btn-ghost btn-sm"
               style={{ marginTop: 'var(--space-3)', alignSelf: 'flex-start' }}
             >
-              {expandedBrand === brand.brandId ? '▲ Hide Events' : '▼ Joined Events'}
+              {expandedBrand === brand.brandId ? `▲ ${t('hideEvents')}` : `▼ ${t('joinedEvents')}`}
             </button>
 
             {expandedBrand === brand.brandId && (
               <div style={{ marginTop: 'var(--space-2)', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                {!brandEvents[brand.brandId] && <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>Loading...</p>}
+                {!brandEvents[brand.brandId] && <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>{t('loading')}</p>}
                 {brandEvents[brand.brandId]?.length === 0 && (
-                  <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>Not assigned to any events yet.</p>
+                  <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>{t('notAssignedEvents')}</p>
                 )}
                 {brandEvents[brand.brandId]?.map((ev) => (
                   <div key={ev.combinedId} style={eventRowStyle}>
@@ -302,6 +327,17 @@ function BrandManager({ user }) {
             )}
           </div>
         ))}
+
+        {!loading && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={filtered.length}
+            itemsPerPage={BRANDS_PER_PAGE}
+            onPageChange={setCurrentPage}
+            noun="brands"
+          />
+        )}
       </div>
 
       {/* Manual Create / Edit Brand Form Modal */}

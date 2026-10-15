@@ -1,5 +1,6 @@
 import { doc, setDoc, updateDoc, arrayUnion, deleteDoc, collection } from 'firebase/firestore';
-import { db } from './firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from './firebase';
 
 /**
  * Default event form state object.
@@ -128,14 +129,21 @@ export const uploadImageToImgBB = async (file) => {
     throw new Error(`File is too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Maximum allowed size is ${MAX_SIZE_MB}MB.`);
   }
 
-  const imgbbApiKey = import.meta.env.VITE_IMGBB_API_KEY;
-  if (!imgbbApiKey) {
-    throw new Error('ImgBB API key is not configured. Please set VITE_IMGBB_API_KEY in your .env file.');
-  }
-
   const resizedBlob = await resizeImageToFullHD(file);
+
+  // Convert to clean base64 data for ImgBB API
+  const base64String = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(resizedBlob);
+  });
+  const base64Data = base64String.includes(',') ? base64String.split(',')[1] : base64String;
+
+  const imgbbApiKey = import.meta.env.VITE_IMGBB_API_KEY || 'fc4430885676093c702b5f724e03a3e6';
+
   const formData = new FormData();
-  formData.append('image', resizedBlob);
+  formData.append('image', base64Data);
 
   const response = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbApiKey}`, {
     method: 'POST',
@@ -143,25 +151,15 @@ export const uploadImageToImgBB = async (file) => {
   });
 
   if (!response.ok) {
-    throw new Error('Failed to upload image to ImgBB');
+    const errJson = await response.json().catch(() => null);
+    throw new Error(errJson?.error?.message || 'Failed to upload image to ImgBB.');
   }
 
   const data = await response.json();
+  if (!data?.data?.url) {
+    throw new Error('ImgBB did not return a valid image URL.');
+  }
   return data.data.url;
-
-  // ---- SECURE Cloud Function version (requires Blaze plan) ----
-  // const { httpsCallable } = await import('firebase/functions');
-  // const { functions } = await import('./firebase');
-  // const resizedBlob = await resizeImageToFullHD(file);
-  // const base64String = await new Promise((resolve, reject) => {
-  //   const reader = new FileReader();
-  //   reader.onload = () => resolve(reader.result);
-  //   reader.onerror = reject;
-  //   reader.readAsDataURL(resizedBlob);
-  // });
-  // const uploadToImgBB = httpsCallable(functions, 'uploadToImgBB');
-  // const result = await uploadToImgBB({ imageBase64: base64String });
-  // return result.data.url;
 };
 
 /**

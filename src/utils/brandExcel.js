@@ -1,10 +1,10 @@
-import * as XLSX from 'xlsx';
 import { toast } from './toast';
 
 /**
  * Download the Excel template for importing brands into the global catalog.
  */
-export const downloadBrandCatalogTemplate = () => {
+export const downloadBrandCatalogTemplate = async () => {
+  const XLSX = await import('xlsx');
   const headers = [
     ['Brand Name', 'Field of Work', 'Company Email', 'Phone', 'Company Address', 'Logo URL']
   ];
@@ -33,12 +33,13 @@ export const downloadBrandCatalogTemplate = () => {
  * Export all brands from the global catalog to an Excel file.
  * @param {Array<Object>} brands
  */
-export const exportBrandCatalog = (brands = []) => {
+export const exportBrandCatalog = async (brands = []) => {
   if (!brands || brands.length === 0) {
     toast.warning('No brands in catalog to export.');
     return;
   }
 
+  const XLSX = await import('xlsx');
   const rows = brands.map((b) => ({
     'Brand ID': b.brandId || '',
     'Brand Name': b.brandName || '',
@@ -77,8 +78,9 @@ export const parseBrandCatalogExcel = (file, existingBrands = []) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
+        const XLSX = await import('xlsx');
         const bstr = evt.target.result;
         const workbook = XLSX.read(bstr, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
@@ -159,4 +161,47 @@ export const parseBrandCatalogExcel = (file, existingBrands = []) => {
     reader.onerror = (err) => reject(err);
     reader.readAsBinaryString(file);
   });
+};
+
+/**
+ * Generate and download the Excel import template for brand assignment.
+ * Sheet 1: Template with column headers and sample rows.
+ * Sheet 2: Reference catalog of all existing brands in the system.
+ */
+export const downloadBrandAssignmentTemplate = async (brands = []) => {
+  const XLSX = await import('xlsx');
+  const headers = [['Brand Name', 'Rank', 'Booth Position', 'Brand ID (Optional)']];
+  const sampleRows = [
+    ['Example Tech Corp', 'gold', 'A-01', ''],
+    ['Global Solutions', 'silver', 'Booth 12', ''],
+    ['Innovative Apps', 'standard', 'Hall B-05', ''],
+  ];
+
+  const templateWs = XLSX.utils.aoa_to_sheet([...headers, ...sampleRows]);
+  templateWs['!cols'] = [
+    { wch: 25 },
+    { wch: 15 },
+    { wch: 20 },
+    { wch: 20 },
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, templateWs, 'Brand Import Template');
+
+  if (brands && brands.length > 0) {
+    const catalogRows = [
+      ['Brand ID', 'Brand Name', 'Field of Work', 'Company Email'],
+      ...brands.map((b) => [
+        b.brandId || '',
+        b.brandName || '',
+        b.fieldOfWork || '',
+        b.companyEmail || '',
+      ]),
+    ];
+    const catalogWs = XLSX.utils.aoa_to_sheet(catalogRows);
+    catalogWs['!cols'] = [{ wch: 12 }, { wch: 25 }, { wch: 20 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, catalogWs, 'Available Brands Catalog');
+  }
+
+  XLSX.writeFile(wb, 'TreasureLayout_Brand_Assignment_Template.xlsx');
 };

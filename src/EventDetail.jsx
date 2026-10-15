@@ -1,56 +1,55 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, increment, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase';
-import Modal, { modalOverlayStyle, modalCardStyle } from './Modal';
+import Modal from './Modal';
 import { useTranslation } from 'react-i18next';
 import EventForm from './EventForm';
 import BackToTopButton from './BackToTopButton';
 import { uploadEventImageAndUpdate, uploadKeyviewImageAndUpdate, updateEventInFirestore, deleteEventFromFirestore, uploadImageToImgBB, INITIAL_EVENT_FORM } from './Event';
 import QRCode from 'qrcode';
-import { getBrandsForEvent, removeAssignment, updateAssignment, setTreasureHolder, getOrCreateStampTicket } from './Brand';
-import AssignBrandModal, { downloadBrandAssignmentTemplate } from './AssignBrandModal';
+import { subscribeBrandsForEvent, removeAssignment, updateAssignment, setTreasureHolder, getOrCreateStampTicket } from './Brand';
+// Admin/manager-only: loaded on demand (pulls in xlsx only when actually used)
+const AssignBrandModal = lazy(() => import('./AssignBrandModal'));
 import { useBrands } from './hooks/useBrands';
+import { usePinEditor } from './hooks/usePinEditor';
 import StampTicket from './StampTicket';
-import { getCachedEventDetail, cacheEventDetail, getCachedUserRegistration, cacheUserRegistration, cacheStampTicket, getCachedTreasureHuntOptIn, cacheTreasureHuntOptIn } from './storage';
+import {
+  getCachedEventDetail,
+  cacheEventDetail,
+  getCachedUserRegistration,
+  cacheUserRegistration,
+  cacheStampTicket,
+  getCachedTreasureHuntOptIn,
+  cacheTreasureHuntOptIn,
+  cacheAttendedLayoutImages,
+  removeAttendedLayoutImages,
+} from './storage';
 import { canManage } from './utils/auth';
 import { handleFirebaseError } from './utils/firebaseErrors';
 import { stampKey } from './utils/keys';
-import BrandLogo from './components/BrandLogo';
-import EmptyState from './components/EmptyState';
 import { toast } from './utils/toast';
-
-import Logo from './Logo.png';
-
-const pinImages = {
-  default: 'https://cdn-icons-png.flaticon.com/512/149/149059.png', // Red pin
-  star: 'https://cdn-icons-png.flaticon.com/512/1828/1828884.png',   // Gold star
-  logo: Logo,
-};
+import { confirmDialog } from './utils/confirm';
+import FullscreenLayoutViewer from './components/eventDetail/FullscreenLayoutViewer';
+import BrandDetailModal from './components/eventDetail/BrandDetailModal';
+import RegistrationModal from './components/eventDetail/RegistrationModal';
+import LayoutGallery from './components/eventDetail/LayoutGallery';
+import AttendingBrandsSection from './components/eventDetail/AttendingBrandsSection';
+import EventInfoHeader from './components/eventDetail/EventInfoHeader';
 
 function EventDetail({ user }) {
   const { id } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const fileInputRef = useRef(null);
-  const keyviewFileInputRef = useRef(null);
-  const hasDraggedRef = useRef(false);
 
   const [isUploading, setIsUploading] = useState(false);
   const [isUploadingKeyview, setIsUploadingKeyview] = useState(false);
-  const [fullscreenImage, setFullscreenImage] = useState(null);
-  const [fullscreenImageIndex, setFullscreenImageIndex] = useState(null);
-  const [selectedPinType, setSelectedPinType] = useState('default');
-  const [pinSize, setPinSize] = useState(30);
-  const [draggingPinIndex, setDraggingPinIndex] = useState(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [isUploadingKeyviewModal, setIsUploadingKeyviewModal] = useState(false);
   const [isUploadingLayoutModal, setIsUploadingLayoutModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [assignedBrands, setAssignedBrands] = useState([]);
   const [loadingBrands, setLoadingBrands] = useState(true);
-  const [showAllBrands, setShowAllBrands] = useState(false);
-  const BRAND_COLLAPSE_LIMIT = 5;
   const [showAssignBrandModal, setShowAssignBrandModal] = useState(false);
   const [assignModalTab, setAssignModalTab] = useState('single');
   const { brands: globalBrands } = useBrands();
@@ -59,16 +58,6 @@ function EventDetail({ user }) {
   const [joinTreasureHunt, setJoinTreasureHunt] = useState(true);
   const [userJoinedHunt, setUserJoinedHunt] = useState(false);
   const [selectedBrandDetail, setSelectedBrandDetail] = useState(null);
-  const [editBrandPosition, setEditBrandPosition] = useState('');
-  const [savingBrandPosition, setSavingBrandPosition] = useState(false);
-  const [brandPositionSavedMsg, setBrandPositionSavedMsg] = useState(false);
-
-  useEffect(() => {
-    if (selectedBrandDetail) {
-      setEditBrandPosition(selectedBrandDetail.position || '');
-      setBrandPositionSavedMsg(false);
-    }
-  }, [selectedBrandDetail?.combinedId]);
 
   // QR canvas refs: keyed by combinedId
   const qrCanvasRefs = useRef({});
@@ -82,8 +71,7 @@ function EventDetail({ user }) {
 
   const canEdit = canManage(user);
   const treasureBrands = assignedBrands.filter((b) => b.isTreasureHolder);
-  const displayedBrands = showAllBrands ? assignedBrands : assignedBrands.slice(0, BRAND_COLLAPSE_LIMIT);
-  
+
   const isRegistered = user ? (userRegState ?? event?.registeredUsers?.includes(user?.uid)) : false;
 
   // Display registered count starting at 100+ minimum, updating in blocks of 100 once registered count exceeds 100
@@ -91,8 +79,14 @@ function EventDetail({ user }) {
   const baseCount = Math.max(100, Math.floor(rawCount / 100) * 100);
   const displayRegisteredCount = `${baseCount}+`;
 
-  const imageContainerRef = useRef(null);
   const scrollViewRef = useRef(null);
+
+  const editor = usePinEditor({
+    eventId: id,
+    canEdit,
+    layoutImages: currentLayoutImages,
+    setLayoutImages: setCurrentLayoutImages,
+  });
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -118,40 +112,64 @@ function EventDetail({ user }) {
         }).catch(() => {});
       }
 
+      let unsubDoc = () => {};
       try {
         const docRef = doc(db, 'event', id);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setEvent(data);
-          cacheEventDetail(id, data);
-          setCurrentLayoutImages(data.layoutImages || []);
-          setCurrentKeyviewImage(data.imageLink || '');
-          setFormData({
-            eventName: data.eventName || '', eventHostest: data.eventHostest || '',
-            setUpDate: data.setUpDate || '', eventDateStart: data.eventDateStart || '',
-            eventDateEnd: data.eventDateEnd || '', CleanUpDate: data.CleanUpDate || '',
-            eventLocation: data.eventLocation || '', PIC: data.PIC || '',
-            note: data.note || '', attendees: data.attendees || 0,
-            imageLink: data.imageLink || '', layoutImages: data.layoutImages || []
-          });
-        }
+        unsubDoc = onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setEvent(data);
+            cacheEventDetail(id, data);
+            setCurrentLayoutImages(data.layoutImages || []);
+            setCurrentKeyviewImage(data.imageLink || '');
+            setFormData({
+              eventName: data.eventName || '', eventHostest: data.eventHostest || '',
+              setUpDate: data.setUpDate || '', eventDateStart: data.eventDateStart || '',
+              eventDateEnd: data.eventDateEnd || '', CleanUpDate: data.CleanUpDate || '',
+              eventLocation: data.eventLocation || '', PIC: data.PIC || '',
+              note: data.note || '', attendees: data.attendees || 0,
+              imageLink: data.imageLink || '', layoutImages: data.layoutImages || []
+            });
+
+            // Cache layout images for offline & instant access if user attends this event
+            const isUserAttending = user && (userRegState ?? data.registeredUsers?.includes(user.uid));
+            if (isUserAttending && data.layoutImages?.length > 0) {
+              cacheAttendedLayoutImages(id, data.layoutImages);
+            }
+          }
+          setLoadingEvent(false);
+        }, (error) => {
+          console.error("Error listening to event:", error);
+          setLoadingEvent(false);
+        });
       } catch (error) {
-        console.error("Error fetching event:", error);
-      } finally {
+        console.error("Error setting up event listener:", error);
         setLoadingEvent(false);
       }
+
+      return unsubDoc;
     };
-    fetchEvent();
+    const unsub = fetchEvent();
+    return () => {
+      unsub.then?.((fn) => fn?.()).catch?.(() => {});
+    };
   }, [id, user]);
 
-  // Load assignments for this event (moved above early return to satisfy Rules of Hooks)
+  // Real-time synchronization of assignments for this event via onSnapshot
   useEffect(() => {
     if (!id) return;
-    getBrandsForEvent(id)
-      .then((data) => setAssignedBrands(data))
-      .catch((err) => console.error('Error loading brand assignments:', err))
-      .finally(() => setLoadingBrands(false));
+    const unsub = subscribeBrandsForEvent(
+      id,
+      (data) => {
+        setAssignedBrands(data);
+        setLoadingBrands(false);
+      },
+      (err) => {
+        console.error('Error listening to brand assignments:', err);
+        setLoadingBrands(false);
+      }
+    );
+    return () => unsub();
   }, [id]);
 
   // Render QR codes into canvas elements whenever treasure holders change (moved above early return to satisfy Rules of Hooks)
@@ -193,7 +211,7 @@ function EventDetail({ user }) {
       toast.error("Image upload failed. See console for details.");
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      e.target.value = '';
     }
   };
 
@@ -223,7 +241,8 @@ function EventDetail({ user }) {
         setUserJoinedHunt(false);
         cacheUserRegistration(id, user.uid, false);
         cacheTreasureHuntOptIn(id, user.uid, false);
-        toast.info('You have unregistered from the event.');
+        removeAttendedLayoutImages(id);
+        toast.info(t('unregisteredToast'));
       } catch (error) {
         console.error("Error unregistering:", error);
         toast.error("There was an issue. Please try again.");
@@ -255,6 +274,11 @@ function EventDetail({ user }) {
       setUserRegState(true);
       cacheUserRegistration(id, user.uid, true);
 
+      // Pre-cache all layout images on device storage for instant offline viewing
+      if (currentLayoutImages?.length > 0) {
+        cacheAttendedLayoutImages(id, currentLayoutImages);
+      }
+
       // Create treasure hunt ticket if opted in and there are brands
       if (joinTreasureHunt && treasureBrands.length > 0) {
         setUserJoinedHunt(true);
@@ -271,8 +295,8 @@ function EventDetail({ user }) {
       }
 
       toast.success(joinTreasureHunt && treasureBrands.length > 0
-        ? 'Registered! Your Treasure Hunt card is ready below.'
-        : 'You have successfully registered for the event!');
+        ? t('registeredHuntToast')
+        : t('registeredEventToast'));
     } catch (error) {
       console.error("Error registering:", error);
       toast.error("There was an issue. Please try again.");
@@ -313,7 +337,7 @@ function EventDetail({ user }) {
       toast.error("Keyview image upload failed. See console for details.");
     } finally {
       setIsUploadingKeyview(false);
-      if (keyviewFileInputRef.current) keyviewFileInputRef.current.value = '';
+      e.target.value = '';
     }
   };
 
@@ -341,7 +365,7 @@ function EventDetail({ user }) {
       e.target.value = ''; // reset input
     }
   };
-  
+
   const handleLayoutUploadModal = async (e) => {
     if (!canEdit) {
       toast.warning('Unauthorized: Only Admin and Manager roles can upload layout images.');
@@ -372,7 +396,14 @@ function EventDetail({ user }) {
       toast.warning('Unauthorized: Only Admin and Manager roles can delete layout images.');
       return;
     }
-    if (!window.confirm("Are you sure you want to delete this layout picture?")) return;
+    const ok = await confirmDialog({
+      title: t('deleteLayoutConfirmTitle'),
+      message: t('deleteLayoutConfirmMsg'),
+      confirmText: t('delete'),
+      confirmVariant: 'danger',
+      icon: '🖼️',
+    });
+    if (!ok) return;
     const updatedImages = currentLayoutImages.filter((_, idx) => idx !== indexToDelete);
     try {
       const eventRef = doc(db, 'event', id);
@@ -380,9 +411,8 @@ function EventDetail({ user }) {
       setCurrentLayoutImages(updatedImages);
       setEvent(prev => ({ ...prev, layoutImages: updatedImages }));
       setFormData(prev => ({ ...prev, layoutImages: updatedImages }));
-      if (fullscreenImageIndex === indexToDelete) {
-        setFullscreenImage(null);
-        setFullscreenImageIndex(null);
+      if (editor.fullscreenImageIndex === indexToDelete) {
+        editor.closeViewer();
       }
       toast.success('Layout image deleted successfully.');
     } catch (error) {
@@ -427,10 +457,10 @@ function EventDetail({ user }) {
       toast.warning('Unauthorized: Only Admin and Manager roles can update event details.');
       return;
     }
-    
+
     // Manual validation to ensure the form doesn't fail silently
     if (!formData.eventName || !formData.eventHostest || !formData.eventDateStart || !formData.eventLocation) {
-      toast.warning("Please fill out the Event Name, Host, Start Date, and Location.");
+      toast.warning(t('fillRequiredEventFields'));
       return;
     }
 
@@ -450,9 +480,14 @@ function EventDetail({ user }) {
   };
 
   const handleDeleteEvent = async () => {
-    if (!window.confirm("Are you sure you want to delete this event? This action cannot be undone.")) {
-      return;
-    }
+    const ok = await confirmDialog({
+      title: t('deleteEventConfirmTitle'),
+      message: t('deleteEventConfirmMsg'),
+      confirmText: t('deleteEvent'),
+      confirmVariant: 'danger',
+      icon: '🗑️',
+    });
+    if (!ok) return;
     try {
       await deleteEventFromFirestore(id);
       toast.success('Event deleted successfully!');
@@ -461,8 +496,6 @@ function EventDetail({ user }) {
       handleFirebaseError(error, 'delete event');
     }
   };
-
-
 
   const handleBrandAssigned = (assignmentOrArray) => {
     if (Array.isArray(assignmentOrArray)) {
@@ -503,14 +536,24 @@ function EventDetail({ user }) {
     XLSX.writeFile(wb, `${safeEventName}_Assigned_Brands.xlsx`);
   };
 
+  // Resolves true when the assignment was removed, false on cancel/failure.
   const handleRemoveAssignment = async (combinedId) => {
-    if (!window.confirm('Remove this brand from the event?')) return;
+    const ok = await confirmDialog({
+      title: t('removeBrandConfirmTitle'),
+      message: t('removeBrandConfirmMsg'),
+      confirmText: t('removeBrandBtn'),
+      confirmVariant: 'danger',
+      icon: '🏢',
+    });
+    if (!ok) return false;
     try {
       await removeAssignment(combinedId);
       setAssignedBrands((prev) => prev.filter((a) => a.combinedId !== combinedId));
       toast.success('Brand removed from event successfully.');
+      return true;
     } catch (err) {
       toast.error('Failed to remove brand: ' + err.message);
+      return false;
     }
   };
 
@@ -555,8 +598,6 @@ function EventDetail({ user }) {
     }
   };
 
-
-
   const handleDownloadQR = (combinedId, brandName) => {
     const canvas = qrCanvasRefs.current[combinedId];
     if (!canvas) return;
@@ -578,659 +619,73 @@ function EventDetail({ user }) {
     }
   };
 
-  const handleFullscreenClick = async (e) => {
-    if (!canEdit || !imageContainerRef.current) return;
-    if (draggingPinIndex !== null || hasDraggedRef.current) return;
-
-    const rect = imageContainerRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    // Strictly constrain percentage between 0% and 100% of the image
-    const xPercent = Math.max(0, Math.min(100, (x / rect.width) * 100));
-    const yPercent = Math.max(0, Math.min(100, (y / rect.height) * 100));
-
-    const newPin = { x: xPercent, y: yPercent, type: selectedPinType };
-
-    // Update local state immediately for responsiveness
-    const updatedLayoutImages = [...currentLayoutImages];
-    const currentImageObject = updatedLayoutImages[fullscreenImageIndex] || fullscreenImage;
-    let newImageObject;
-
-    if (typeof currentImageObject === 'string') {
-      newImageObject = { url: currentImageObject, pins: [newPin] };
-    } else {
-      const existingPins = currentImageObject.pins || [];
-      newImageObject = { ...currentImageObject, url: currentImageObject.url, pins: [...existingPins, newPin] };
-    }
-    updatedLayoutImages[fullscreenImageIndex] = newImageObject;
-
-    setFullscreenImage(newImageObject); // Instantly update the fullscreen view with the new pin
-    setCurrentLayoutImages(updatedLayoutImages);
-
-    // Persist to Firestore
-    try {
-      const eventRef = doc(db, 'event', id);
-      await updateDoc(eventRef, { layoutImages: updatedLayoutImages });
-    } catch (error) {
-      console.error("Failed to save pin:", error);
-      toast.error("Could not save the new pin. Please try again.");
-    }
+  const openAssignModal = (tab) => {
+    setAssignModalTab(tab);
+    setShowAssignBrandModal(true);
   };
-
-  const handlePinDelete = async (e, pinIndexToDelete) => {
-    e.stopPropagation(); // Prevent handleFullscreenClick from firing
-
-    if (!canEdit) return;
-
-    // Confirmation before deleting
-    if (!window.confirm("Are you sure you want to delete this pin?")) {
-      return;
-    }
-
-    // Update local state for immediate feedback
-    const updatedLayoutImages = [...currentLayoutImages];
-    const imageObject = { ...updatedLayoutImages[fullscreenImageIndex] };
-
-    if (!imageObject.pins) return;
-
-    const updatedPins = imageObject.pins.filter((_, index) => index !== pinIndexToDelete);
-    imageObject.pins = updatedPins;
-    updatedLayoutImages[fullscreenImageIndex] = imageObject;
-    
-    setCurrentLayoutImages(updatedLayoutImages);
-    setFullscreenImage(imageObject); // Update the fullscreen view instantly
-
-    // Persist to Firestore
-    try {
-      const eventRef = doc(db, 'event', id);
-      await updateDoc(eventRef, { layoutImages: updatedLayoutImages });
-      toast.success('Pin deleted successfully.');
-    } catch (error) {
-      console.error("Failed to delete pin:", error);
-      toast.error("Could not delete the pin. Please try again.");
-    }
-  };
-
-  const handlePinMouseDown = (e, index) => {
-    if (!canEdit) return;
-    e.preventDefault();
-    e.stopPropagation();
-    hasDraggedRef.current = false;
-    setDraggingPinIndex(index);
-  };
-
-  const handlePinTouchStart = (e, index) => {
-    if (!canEdit) return;
-    e.stopPropagation();
-    hasDraggedRef.current = false;
-    setDraggingPinIndex(index);
-  };
-
-  const handleMouseUp = async () => {
-    if (draggingPinIndex === null) return;
-    
-    setDraggingPinIndex(null);
-    setTimeout(() => {
-      hasDraggedRef.current = false;
-    }, 120);
-
-    // Persist the final position to Firestore
-    try {
-      const eventRef = doc(db, 'event', id);
-      await updateDoc(eventRef, { layoutImages: currentLayoutImages });
-    } catch (error) {
-      console.error("Failed to save pin position:", error);
-      toast.error("Could not save the new pin position. Please try again.");
-    }
-  };
-
-  const handleMouseMove = (e) => {
-    if (draggingPinIndex === null || !imageContainerRef.current) return;
-    hasDraggedRef.current = true;
-
-    const rect = imageContainerRef.current.getBoundingClientRect();
-    let x = e.clientX - rect.left;
-    let y = e.clientY - rect.top;
-
-    // Constrain the pin within the image container
-    x = Math.max(0, Math.min(x, rect.width));
-    y = Math.max(0, Math.min(y, rect.height));
-
-    const xPercent = (x / rect.width) * 100;
-    const yPercent = (y / rect.height) * 100;
-
-    // Create a new state to avoid direct mutation
-    const updatedLayoutImages = [...currentLayoutImages];
-    const imageObject = { ...updatedLayoutImages[fullscreenImageIndex] };
-    
-    if (imageObject.pins && imageObject.pins[draggingPinIndex]) {
-      const updatedPins = [...imageObject.pins];
-      updatedPins[draggingPinIndex] = {
-        ...updatedPins[draggingPinIndex],
-        x: xPercent,
-        y: yPercent,
-      };
-      imageObject.pins = updatedPins;
-      
-      // Update the state for both the detail view and the fullscreen modal
-      updatedLayoutImages[fullscreenImageIndex] = imageObject;
-      setCurrentLayoutImages(updatedLayoutImages);
-      setFullscreenImage(imageObject);
-    }
-  };
-
-  const handleTouchMove = (e) => {
-    if (draggingPinIndex === null || !imageContainerRef.current) return;
-    const touch = e.touches?.[0];
-    if (!touch) return;
-    hasDraggedRef.current = true;
-
-    const rect = imageContainerRef.current.getBoundingClientRect();
-    let x = touch.clientX - rect.left;
-    let y = touch.clientY - rect.top;
-
-    x = Math.max(0, Math.min(x, rect.width));
-    y = Math.max(0, Math.min(y, rect.height));
-
-    const xPercent = (x / rect.width) * 100;
-    const yPercent = (y / rect.height) * 100;
-
-    const updatedLayoutImages = [...currentLayoutImages];
-    const imageObject = { ...updatedLayoutImages[fullscreenImageIndex] };
-    
-    if (imageObject.pins && imageObject.pins[draggingPinIndex]) {
-      const updatedPins = [...imageObject.pins];
-      updatedPins[draggingPinIndex] = {
-        ...updatedPins[draggingPinIndex],
-        x: xPercent,
-        y: yPercent,
-      };
-      imageObject.pins = updatedPins;
-      
-      updatedLayoutImages[fullscreenImageIndex] = imageObject;
-      setCurrentLayoutImages(updatedLayoutImages);
-      setFullscreenImage(imageObject);
-    }
-  };
-
 
   return (
     <div className="mobile-container">
-      {/* Fullscreen Modal Overlay */}
-      {fullscreenImage && (
-        <div 
-          style={{
-            position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
-            backgroundColor: 'rgba(0,0,0,0.92)', zIndex: 9999,
-            display: 'flex', justifyContent: 'center', alignItems: 'center',
-            padding: '16px', boxSizing: 'border-box', overflow: 'hidden'
-          }}
-          onClick={() => { 
-            if (draggingPinIndex === null && !hasDraggedRef.current) {
-              setFullscreenImage(null); setFullscreenImageIndex(null); 
-            }
-          }}
-        >
-          {canEdit && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute', top: '16px', left: '16px', zIndex: 10,
-                background: 'rgba(0,0,0,0.75)', borderRadius: '8px', padding: '8px 12px',
-                display: 'flex', flexDirection: 'column', gap: '8px',
-                backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)',
-                maxWidth: 'calc(100vw - 120px)'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px', fontWeight: 600 }}>Pin:</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPinType('default')}
-                  style={{
-                    background: selectedPinType === 'default' ? 'var(--accent)' : 'transparent',
-                    border: '1px solid rgba(255,255,255,0.3)', borderRadius: '4px', padding: '3px', cursor: 'pointer'
-                  }}
-                  title="Default Pin"
-                >
-                  <img src={pinImages.default} alt="Default Pin" style={{ width: '22px', height: '22px', display: 'block' }} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPinType('star')}
-                  style={{
-                    background: selectedPinType === 'star' ? 'var(--accent)' : 'transparent',
-                    border: '1px solid rgba(255,255,255,0.3)', borderRadius: '4px', padding: '3px', cursor: 'pointer'
-                  }}
-                  title="Star Pin"
-                >
-                  <img src={pinImages.star} alt="Star Pin" style={{ width: '22px', height: '22px', display: 'block' }} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSelectedPinType('logo')}
-                  style={{
-                    background: selectedPinType === 'logo' ? 'var(--accent)' : 'transparent',
-                    border: '1px solid rgba(255,255,255,0.3)', borderRadius: '4px', padding: '3px', cursor: 'pointer'
-                  }}
-                  title="Logo Pin"
-                >
-                  <img src={pinImages.logo} alt="Logo Pin" style={{ width: '22px', height: '22px', display: 'block' }} />
-                </button>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <label style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px', fontWeight: '500' }}>Size:</label>
-                <input 
-                  type="range" 
-                  min="16" max="50" 
-                  value={pinSize} 
-                  onChange={(e) => setPinSize(Number(e.target.value))}
-                  style={{ width: '80px', cursor: 'pointer' }}
-                />
-              </div>
-            </div>
-          )}
+      <FullscreenLayoutViewer
+        editor={editor}
+        canEdit={canEdit}
+        onDeleteImage={handleDeleteLayoutImage}
+      />
 
-          <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '8px', alignItems: 'center', zIndex: 10 }}>
-            {canEdit && fullscreenImageIndex !== null && (
-              <button
-                style={{
-                  background: 'rgba(220, 38, 38, 0.85)', color: '#fff',
-                  border: 'none', borderRadius: '8px', padding: '6px 12px',
-                  fontSize: '12px', fontWeight: '600', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '4px',
-                  backdropFilter: 'blur(4px)'
-                }}
-                onClick={(e) => { e.stopPropagation(); handleDeleteLayoutImage(fullscreenImageIndex); }}
-              >
-                🗑️ Delete
-              </button>
-            )}
-            <button 
-              style={{
-                background: 'rgba(255,255,255,0.2)', color: '#fff',
-                border: 'none', borderRadius: '50%', width: '36px', height: '36px',
-                fontSize: '18px', cursor: 'pointer', display: 'flex',
-                justifyContent: 'center', alignItems: 'center',
-                backdropFilter: 'blur(4px)'
-              }}
-              onClick={(e) => { e.stopPropagation(); setFullscreenImage(null); setFullscreenImageIndex(null); }}
-              aria-label="Close"
-            > 
-              ✕
-            </button>
-          </div>
-
-          {/* Tight Image Wrapper — ensures pins are mapped 100% to visible image on all screen sizes */}
-          <div
-            ref={imageContainerRef}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (draggingPinIndex === null && !hasDraggedRef.current) {
-                handleFullscreenClick(e);
-              }
-            }}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleMouseUp}
-            style={{
-              position: 'relative',
-              display: 'inline-block',
-              maxWidth: '94vw',
-              maxHeight: '82vh',
-              lineHeight: 0,
-              userSelect: 'none',
-              touchAction: 'none',
-              cursor: canEdit && draggingPinIndex === null ? 'crosshair' : (draggingPinIndex !== null ? 'grabbing' : 'default'),
-            }}
-          >
-            <img 
-              src={fullscreenImage.url} 
-              alt="Fullscreen Layout" 
-              draggable={false}
-              style={{
-                display: 'block',
-                maxWidth: '94vw',
-                maxHeight: '82vh',
-                width: 'auto',
-                height: 'auto',
-                objectFit: 'contain',
-                borderRadius: '6px',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
-                pointerEvents: 'none',
-              }} 
-            />
-            {fullscreenImage.pins?.map((pin, index) => {
-              const style = {
-                position: 'absolute',
-                left: `${pin.x}%`,
-                top: `${pin.y}%`,
-                transform: 'translate(-50%, -50%)',
-                width: `${pinSize}px`,
-                height: `${pinSize}px`,
-                cursor: canEdit ? (draggingPinIndex === index ? 'grabbing' : 'grab') : 'default',
-                pointerEvents: 'auto',
-                touchAction: 'none',
-              };
-              if (pin.type === 'star') {
-                style.filter = 'drop-shadow(0px 0px 3px rgba(0, 0, 0, 0.9))';
-              }
-              return (
-                <img 
-                  key={index}
-                  src={pinImages[pin.type] || pinImages.default}
-                  alt="Pin"
-                  draggable={false}
-                  onMouseDown={canEdit ? (e) => handlePinMouseDown(e, index) : undefined}
-                  onTouchStart={canEdit ? (e) => handlePinTouchStart(e, index) : undefined}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (hasDraggedRef.current) return;
-                    if (canEdit && window.confirm("Are you sure you want to delete this pin?")) {
-                      handlePinDelete(e, index);
-                    }
-                  }}
-                  style={style}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <button 
-        onClick={() => navigate(-1)} 
+      <button
+        onClick={() => navigate(-1)}
         className="btn btn-ghost btn-sm"
         style={{ alignSelf: 'flex-start', marginBottom: 'var(--space-3)' }}
       >
         &larr; {t('back')}
       </button>
       <div className="scroll-view" ref={scrollViewRef}>
-        {/* Main Event Keyview Image */}
-        <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', borderRadius: 'var(--radius-xl)', overflow: 'hidden', boxShadow: 'var(--shadow-md)' }}>
-          <img 
-            src={currentKeyviewImage} 
-            alt={event.eventName} 
-            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} 
-          />
-          {canEdit && (
-            <>
-              <input 
-                type="file" 
-                accept="image/*" 
-                ref={keyviewFileInputRef} 
-                onChange={handleKeyviewImageUpload} 
-                style={{ display: 'none' }} 
-              />
-              <button 
-                onClick={() => keyviewFileInputRef.current.click()}
-                disabled={isUploadingKeyview}
-                style={{
-                  position: 'absolute', bottom: 'var(--space-3)', right: 'var(--space-3)',
-                  padding: 'var(--space-2) var(--space-4)', borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'rgba(0,0,0,0.7)', color: 'white',
-                  border: '1px solid rgba(255,255,255,0.4)', cursor: 'pointer',
-                  fontSize: 'var(--font-sm)', fontWeight: '500', backdropFilter: 'blur(8px)'
-                }}
-              >
-                {isUploadingKeyview ? 'Uploading...' : 'Change Keyview'}
-              </button>
-            </>
-          )}
-        </div>
+        <EventInfoHeader
+          event={event}
+          keyviewImage={currentKeyviewImage}
+          canEdit={canEdit}
+          user={user}
+          isRegistered={isRegistered}
+          displayRegisteredCount={displayRegisteredCount}
+          isUploadingKeyview={isUploadingKeyview}
+          onKeyviewUpload={handleKeyviewImageUpload}
+          onRegister={handleRegister}
+          onUpdate={() => setShowUpdateModal(true)}
+          onDelete={handleDeleteEvent}
+        />
 
-        <div style={{ marginTop: 'var(--space-4)', textAlign: 'left' }}>
-          <h1 style={{ fontSize: 'var(--font-3xl)', margin: '0 0 var(--space-2) 0' }}>{event.eventName}</h1>
-          <p style={{ fontSize: 'var(--font-lg)', marginBottom: 'var(--space-2)', color: 'var(--text-secondary)' }}>Hosted by: {event.eventHostest}</p>
-          <p style={{ fontSize: 'var(--font-md)', color: 'var(--accent)', fontWeight: '600', marginBottom: 'var(--space-3)' }}>
-            {event.eventDateStart} to {event.eventDateEnd}
-          </p>
-          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>Location:</strong> {event.eventLocation}</p>
-          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>Setup:</strong> {event.setUpDate} | <strong>Cleanup:</strong> {event.CleanUpDate}</p>
-          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>PIC:</strong> {event.PIC}</p>
-          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-1)' }}><strong>Registered:</strong> {displayRegisteredCount} / {event.attendees > 0 ? event.attendees : '∞'}</p>
-          <p style={{ fontSize: 'var(--font-sm)', marginBottom: 'var(--space-4)', color: 'var(--text-secondary)' }}><strong>Note:</strong> {event.note}</p>
-          
-          <button 
-            onClick={handleRegister} 
-            className={`btn ${isRegistered ? 'btn-danger' : 'btn-primary'}`}
-            style={{ width: '100%', padding: 'var(--space-3)', fontSize: 'var(--font-md)' }}
-          >
-            {user ? (isRegistered ? t('unregisterFromEvent') : t('registerForEvent')) : t('loginToRegister')}
-          </button>
-
-          {/* Admin Action Buttons */}
-          {canEdit && (
-            <div className="btn-group" style={{ marginTop: 'var(--space-3)', marginBottom: 0 }}>
-              <button onClick={() => setShowUpdateModal(true)} className="btn btn-warning btn-flex">Update Event</button>
-              <button onClick={handleDeleteEvent} className="btn btn-danger btn-flex">Delete Event</button>
-            </div>
-          )}
-        </div>
-
-
-        {/* Brand Detail Modal */}
         {selectedBrandDetail && (
-          <div style={modalOverlayStyle({ zIndex: 9999, background: 'rgba(0, 0, 0, 0.75)', blur: 'blur(8px)' })}>
-            <div className="modal-container" style={{ ...modalCardStyle({ maxWidth: '440px', shadow: 'var(--shadow-glow)' }), display: 'flex', flexDirection: 'column' }}>
-              {/* Modal Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 'var(--space-4)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <BrandLogo url={selectedBrandDetail.logoUrl} name={selectedBrandDetail.brandName} size={48} />
-                  <div>
-                    <h3 style={{ margin: 0, fontSize: 'var(--font-lg)' }}>{selectedBrandDetail.brandName}</h3>
-                    <p style={{ margin: 0, fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>{selectedBrandDetail.fieldOfWork}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setSelectedBrandDetail(null)}
-                  className="btn btn-ghost"
-                  style={{ padding: '4px 8px', fontSize: 'var(--font-lg)', cursor: 'pointer' }}
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Details Content */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500' }}>Rank</span>
-                  {canEdit ? (
-                    <select
-                      aria-label="Edit brand rank"
-                      value={selectedBrandDetail.rank}
-                      onChange={async (e) => {
-                        const newRank = e.target.value;
-                        await handleUpdateAssignmentRank(selectedBrandDetail.combinedId, newRank);
-                        setSelectedBrandDetail(prev => ({ ...prev, rank: newRank }));
-                      }}
-                      style={{
-                        fontSize: 'var(--font-sm)', padding: '4px 8px', borderRadius: 'var(--radius-sm)',
-                        border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', cursor: 'pointer'
-                      }}
-                    >
-                      {['gold','silver','bronze','standard'].map((r) => (
-                        <option key={r} value={r} style={{ background: 'var(--bg-card-solid)', color: 'var(--text-primary)' }}>
-                          {r.charAt(0).toUpperCase() + r.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', textTransform: 'capitalize' }}>
-                      {selectedBrandDetail.rank}
-                    </span>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)', gap: 'var(--space-2)' }}>
-                  <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500', flexShrink: 0 }}>Position</span>
-                  {canEdit ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="text"
-                        aria-label="Edit brand booth position"
-                        placeholder="e.g. A-12, Booth 3"
-                        value={editBrandPosition}
-                        onChange={(e) => {
-                          setEditBrandPosition(e.target.value);
-                          setBrandPositionSavedMsg(false);
-                        }}
-                        onKeyDown={async (e) => {
-                          if (e.key === 'Enter') {
-                            setSavingBrandPosition(true);
-                            const ok = await handleUpdateAssignmentPosition(selectedBrandDetail.combinedId, editBrandPosition.trim());
-                            setSavingBrandPosition(false);
-                            if (ok) {
-                              setBrandPositionSavedMsg(true);
-                              setTimeout(() => setBrandPositionSavedMsg(false), 2000);
-                            }
-                          }
-                        }}
-                        style={{
-                          fontSize: 'var(--font-sm)',
-                          padding: '4px 8px',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg-input)',
-                          color: 'var(--text-primary)',
-                          width: '120px',
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setSavingBrandPosition(true);
-                          const ok = await handleUpdateAssignmentPosition(selectedBrandDetail.combinedId, editBrandPosition.trim());
-                          setSavingBrandPosition(false);
-                          if (ok) {
-                            setBrandPositionSavedMsg(true);
-                            setTimeout(() => setBrandPositionSavedMsg(false), 2000);
-                          }
-                        }}
-                        disabled={savingBrandPosition || editBrandPosition.trim() === (selectedBrandDetail.position || '')}
-                        className="btn btn-primary btn-sm"
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          minWidth: '46px',
-                          opacity: editBrandPosition.trim() === (selectedBrandDetail.position || '') ? 0.5 : 1,
-                        }}
-                      >
-                        {savingBrandPosition ? '...' : (brandPositionSavedMsg ? '✓' : 'Save')}
-                      </button>
-                    </div>
-                  ) : (
-                    <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)' }}>
-                      {selectedBrandDetail.position || '—'}
-                    </span>
-                  )}
-                </div>
-
-                {canEdit && (
-                  <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' }}>
-                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500' }}>Brand ID</span>
-                      <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-                        {selectedBrandDetail.brandId}
-                      </span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--border)' }}>
-                      <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)', fontWeight: '500' }}>Assignment ID</span>
-                      <span style={{ fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', fontFamily: 'monospace' }}>
-                        {selectedBrandDetail.combinedId}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* QR code section — ONLY for admin/manager */}
-              {canEdit && selectedBrandDetail.isTreasureHolder && (
-                <div style={{
-                  padding: 'var(--space-4)', background: 'var(--bg-input)', borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-3)', marginBottom: 'var(--space-4)'
-                }}>
-                  <canvas
-                    ref={(el) => {
-                      if (el) {
-                        qrCanvasRefs.current[selectedBrandDetail.combinedId] = el;
-                        QRCode.toCanvas(el, selectedBrandDetail.combinedId, { width: 160, margin: 1 }, (err) => {
-                          if (err) console.error('QR modal draw error:', err);
-                        });
-                      }
-                    }}
-                    style={{ borderRadius: 'var(--radius-md)', background: '#fff', padding: '6px' }}
-                  />
-                  <div style={{ textAlign: 'center', width: '100%' }}>
-                    <p style={{ margin: '0 0 2px', fontSize: 'var(--font-xs)', fontWeight: '600' }}>QR Code — Treasure Holder</p>
-                    <p style={{ margin: '0 0 var(--space-2)', fontSize: '10px', color: 'var(--text-muted)' }}>Encodes: <code>{selectedBrandDetail.combinedId}</code></p>
-                    <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'center' }}>
-                      <button
-                        onClick={() => handleDownloadQR(selectedBrandDetail.combinedId, selectedBrandDetail.brandName)}
-                        className="btn btn-info btn-sm"
-                        style={{ fontSize: '10px', padding: '4px 8px' }}
-                      >
-                        ⬇ Download PNG
-                      </button>
-                      <button
-                        onClick={() => handleReloadQR(selectedBrandDetail.combinedId)}
-                        className="btn btn-secondary btn-sm"
-                        style={{ fontSize: '10px', padding: '4px 8px' }}
-                      >
-                        🔄 Reload QR
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Admin Management Actions */}
-              {canEdit && (
-                <div style={{ display: 'flex', gap: 'var(--space-2)', borderTop: '1px solid var(--border)', paddingTop: 'var(--space-3)', marginTop: 'auto' }}>
-                  <button
-                    onClick={async () => {
-                      const next = !selectedBrandDetail.isTreasureHolder;
-                      await handleToggleTreasureHolder(selectedBrandDetail.combinedId, selectedBrandDetail.isTreasureHolder);
-                      setSelectedBrandDetail(prev => ({ ...prev, isTreasureHolder: next }));
-                    }}
-                    className={`btn btn-sm ${selectedBrandDetail.isTreasureHolder ? 'btn-warning' : 'btn-ghost'}`}
-                    style={{ flex: 1 }}
-                  >
-                    {selectedBrandDetail.isTreasureHolder ? '☆ Remove Treasure' : '⭐ Set Treasure'}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (window.confirm(`Remove ${selectedBrandDetail.brandName} from this event?`)) {
-                        await handleRemoveAssignment(selectedBrandDetail.combinedId);
-                        setSelectedBrandDetail(null);
-                      }
-                    }}
-                    className="btn btn-danger btn-sm"
-                    style={{ flex: 1 }}
-                  >
-                    🗑️ Remove Brand
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+          <BrandDetailModal
+            key={selectedBrandDetail.combinedId}
+            brand={selectedBrandDetail}
+            canEdit={canEdit}
+            onRegisterQrCanvas={(combinedId, el) => {
+              qrCanvasRefs.current[combinedId] = el;
+            }}
+            onClose={() => setSelectedBrandDetail(null)}
+            onBrandChange={setSelectedBrandDetail}
+            onUpdateRank={handleUpdateAssignmentRank}
+            onUpdatePosition={handleUpdateAssignmentPosition}
+            onToggleTreasure={handleToggleTreasureHolder}
+            onRemove={handleRemoveAssignment}
+            onDownloadQR={handleDownloadQR}
+            onReloadQR={handleReloadQR}
+          />
         )}
 
         {/* If registered but not joined treasure hunt, show a join button */}
         {user && isRegistered && !userJoinedHunt && treasureBrands.length > 0 && (
           <div className="stamp-ticket" style={{ textAlign: 'center', padding: 'var(--space-5)' }}>
-            <h3 style={{ margin: '0 0 var(--space-2)' }}>🎫 Treasure Hunt Available</h3>
+            <h3 style={{ margin: '0 0 var(--space-2)' }}>🎫 {t('treasureHuntAvailable')}</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-sm)', marginBottom: 'var(--space-4)' }}>
-              Join the Treasure Hunt to collect stamps from brand booths and win prizes!
+              {t('treasureHuntDesc')}
             </p>
             <button
               onClick={handleJoinTreasureHuntDirectly}
               className="btn btn-primary"
               style={{ width: '100%', padding: 'var(--space-3)' }}
             >
-              Start Treasure Hunt
+              {t('startTreasureHunt')}
             </button>
           </div>
         )}
@@ -1246,245 +701,47 @@ function EventDetail({ user }) {
           />
         )}
 
-        {/* Layout Images Section at the bottom */}
-        <div style={{ marginTop: 'var(--space-6)', textAlign: 'left' }}>
-          <h2 style={{ fontSize: 'var(--font-xl)', marginBottom: 'var(--space-4)' }}>{t('eventLayouts')}</h2>
-          
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', marginBottom: 'var(--space-4)' }}>
-            {currentLayoutImages.length > 0 ? (
-              currentLayoutImages.map((img, index) => (
-                <div key={index} style={{ position: 'relative', width: 'calc(50% - 6px)', paddingTop: 'calc((50% - 6px) * 9 / 16)', backgroundColor: 'var(--bg-input)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                  <img 
-                    src={typeof img === 'string' ? img : img.url} 
-                    alt={`Event Layout ${index + 1}`} 
-                    onClick={() => {
-                      const imageObject = typeof img === 'string' ? { url: img, pins: [] } : img;
-                      setFullscreenImage(imageObject);
-                      setFullscreenImageIndex(index);
-                    }}
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', cursor: 'zoom-in' }}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  {canEdit && (
-                    <div style={{ position: 'absolute', top: '8px', right: '8px', display: 'flex', gap: '6px', zIndex: 5 }}>
-                      <label 
-                        onClick={(e) => e.stopPropagation()} 
-                        style={{
-                          background: 'rgba(0, 0, 0, 0.75)', border: '1px solid rgba(255, 255, 255, 0.3)',
-                          borderRadius: '6px', padding: '4px 8px', color: '#fff', fontSize: '11px',
-                          fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(4px)'
-                        }}
-                      >
-                        ✏️ Replace
-                        <input
-                          type="file"
-                          accept="image/*"
-                          style={{ display: 'none' }}
-                          onChange={(e) => handleReplaceLayoutImage(index, e.target.files[0])}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); handleDeleteLayoutImage(index); }}
-                        style={{
-                          background: 'rgba(220, 38, 38, 0.85)', border: 'none',
-                          borderRadius: '6px', padding: '4px 8px', color: '#fff', fontSize: '11px',
-                          fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(4px)'
-                        }}
-                        title="Delete layout picture"
-                      >
-                        🗑️ Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))
-            ) : (
-              <div style={{ width: '100%', padding: 'var(--space-6) 0', textAlign: 'center', color: 'var(--text-muted)', backgroundColor: 'var(--bg-input)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border)' }}>
-                No layout images available
-              </div>
-            )}
-          </div>
+        <LayoutGallery
+          images={currentLayoutImages}
+          canEdit={canEdit}
+          isUploading={isUploading}
+          onOpen={editor.openViewer}
+          onAdd={handleImageUpload}
+          onReplace={handleReplaceLayoutImage}
+          onDelete={handleDeleteLayoutImage}
+        />
 
-          {canEdit && (
-            <>
-              <input 
-                type="file" 
-                accept="image/*" 
-                ref={fileInputRef} 
-                onChange={handleImageUpload} 
-                style={{ display: 'none' }} 
-              />
-              <button 
-                onClick={() => fileInputRef.current.click()}
-                disabled={isUploading}
-                className="btn btn-primary"
-                style={{ width: '100%' }}
-              >
-                {isUploading ? 'Uploading...' : 'Add New Layout'}
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Attending Brands Section — pushed to the bottom with shorten/expand support */}
-        <div style={{ marginTop: 'var(--space-6)', textAlign: 'left' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <h2 style={{ fontSize: 'var(--font-xl)', margin: 0 }}>{t('attendingBrands')}</h2>
-              {assignedBrands.length > 0 && (
-                <span className="badge badge-solid" style={{ fontSize: 'var(--font-xs)', padding: '2px 8px' }}>
-                  {assignedBrands.length}
-                </span>
-              )}
-            </div>
-            {canEdit && (
-              <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => downloadBrandAssignmentTemplate(globalBrands)}
-                  className="btn btn-secondary btn-sm"
-                  title="Download Excel template for importing brands"
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <span>📄 Download Template</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAssignModalTab('excel');
-                    setShowAssignBrandModal(true);
-                  }}
-                  className="btn btn-secondary btn-sm"
-                  title="Import brands using Excel"
-                  style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <span>📥 Import Excel</span>
-                </button>
-                {assignedBrands.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleExportAssignedBrands}
-                    className="btn btn-secondary btn-sm"
-                    title="Export currently assigned brands to Excel"
-                    style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    <span>📤 Export Brands</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAssignModalTab('single');
-                    setShowAssignBrandModal(true);
-                  }}
-                  className="btn btn-primary btn-sm"
-                >
-                  + Assign Brand
-                </button>
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            {loadingBrands && <p style={{ color: 'var(--text-muted)' }}>{t('loading')}</p>}
-            {!loadingBrands && assignedBrands.length === 0 && (
-              <EmptyState icon="🏢" message={t('noBrandsFound', 'No brands assigned to this event yet.')} />
-            )}
-            {displayedBrands.map((assignment) => (
-              <div
-                key={assignment.combinedId}
-                onClick={() => setSelectedBrandDetail(assignment)}
-                className="touchable-card"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: 'var(--space-2) var(--space-3)',
-                  cursor: 'pointer',
-                  borderRadius: 'var(--radius-md)',
-                  gap: 'var(--space-3)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 0, flex: 1 }}>
-                  {/* Logo */}
-                  <BrandLogo url={assignment.logoUrl} name={assignment.brandName} size={36} />
-                  {/* Name and Badges */}
-                  <div style={{ minWidth: 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <h4 style={{ margin: 0, fontSize: 'var(--font-sm)', fontWeight: '600', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {assignment.brandName}
-                    </h4>
-                    <span className="badge badge-solid" style={{ fontSize: '10px', textTransform: 'capitalize' }}>
-                      {assignment.rank}
-                    </span>
-                    {assignment.isTreasureHolder && (
-                      <span className="badge badge-warning" style={{ fontSize: '10px' }}>⭐ Treasure</span>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexShrink: 0 }}>
-                  {assignment.position ? (
-                    <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Pos: {assignment.position}</span>
-                  ) : (
-                    canEdit && <span style={{ fontSize: '10px', color: 'var(--text-muted)', border: '1px dashed var(--border)', padding: '1px 5px', borderRadius: '4px' }}>+ Position</span>
-                  )}
-                  <span style={{ color: 'var(--text-muted)', fontSize: 'var(--font-md)' }}>›</span>
-                </div>
-              </div>
-            ))}
-
-            {/* Expand / Collapse toggle if total brands exceed limit */}
-            {assignedBrands.length > BRAND_COLLAPSE_LIMIT && (
-              <button
-                type="button"
-                onClick={() => setShowAllBrands(prev => !prev)}
-                className="btn btn-secondary"
-                style={{
-                  marginTop: 'var(--space-2)',
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  fontSize: 'var(--font-sm)',
-                  padding: 'var(--space-2) var(--space-3)',
-                  borderRadius: 'var(--radius-md)',
-                }}
-              >
-                {showAllBrands ? (
-                  <>▲ {t('showLessBrands', 'Show fewer brands')}</>
-                ) : (
-                  <>
-                    ▼ {t('showAllBrands', {
-                      count: assignedBrands.length,
-                      defaultValue: `Show all ${assignedBrands.length} brands (${assignedBrands.length - BRAND_COLLAPSE_LIMIT} more)`
-                    })}
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-        </div>
+        <AttendingBrandsSection
+          brands={assignedBrands}
+          loading={loadingBrands}
+          canEdit={canEdit}
+          onSelect={setSelectedBrandDetail}
+          onDownloadTemplate={async () => (await import('./utils/brandExcel')).downloadBrandAssignmentTemplate(globalBrands)}
+          onImport={() => openAssignModal('excel')}
+          onExport={handleExportAssignedBrands}
+          onAssign={() => openAssignModal('single')}
+        />
       </div>
 
       <BackToTopButton scrollableRef={scrollViewRef} />
 
       {/* Assign Brand Modal */}
       {showAssignBrandModal && event && (
-        <AssignBrandModal
-          event={event}
-          assignedBrandIds={assignedBrands.map((a) => a.combinedId)}
-          onClose={() => setShowAssignBrandModal(false)}
-          onAssigned={handleBrandAssigned}
-          user={user}
-          initialTab={assignModalTab}
-        />
+        <Suspense fallback={null}>
+          <AssignBrandModal
+            event={event}
+            assignedBrandIds={assignedBrands.map((a) => a.combinedId)}
+            onClose={() => setShowAssignBrandModal(false)}
+            onAssigned={handleBrandAssigned}
+            user={user}
+            initialTab={assignModalTab}
+          />
+        </Suspense>
       )}
 
       {/* Update Event Modal */}
       {showUpdateModal && (
-        <Modal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} title="Update Event"> {/* Modal itself can be memoized */}
+        <Modal isOpen={showUpdateModal} onClose={() => setShowUpdateModal(false)} title={t('updateEvent')}> {/* Modal itself can be memoized */}
           <EventForm
             formData={formData}
             onFormChange={handleFormChange}
@@ -1496,83 +753,21 @@ function EventDetail({ user }) {
             onSubmit={handleUpdateSubmit}
             onCancel={() => setShowUpdateModal(false)}
             isSaving={isSaving}
-            submitText="Save Changes"
+            submitText={t('saveChanges')}
           />
         </Modal>
       )}
 
       {/* Registration Modal — treasure hunt opt-in */}
       {showRegModal && (
-        <div className="reg-modal-overlay" onClick={() => setShowRegModal(false)}>
-          <div className="reg-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="reg-modal__header">
-              <h2 className="reg-modal__title">Join Event</h2>
-              <button onClick={() => setShowRegModal(false)} className="reg-modal__close" aria-label="Close">✕</button>
-            </div>
-
-            <div className="reg-modal__body">
-              <div className="reg-modal__event-info">
-                <h3 style={{ margin: '0 0 4px', fontSize: 'var(--font-lg)' }}>{event.eventName}</h3>
-                <p style={{ margin: 0, fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
-                  {event.eventDateStart} · {event.eventLocation}
-                </p>
-              </div>
-
-              {/* Treasure Hunt toggle */}
-              {treasureBrands.length > 0 && (
-                <div
-                  className="reg-modal__hunt-toggle"
-                  onClick={() => setJoinTreasureHunt(!joinTreasureHunt)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setJoinTreasureHunt(!joinTreasureHunt); }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <div className="reg-modal__hunt-label">🎫 Join Treasure Hunt</div>
-                    <p className="reg-modal__hunt-desc">
-                      Visit {treasureBrands.length} brand booth{treasureBrands.length !== 1 ? 's' : ''}, scan QR codes, and collect stamps to win prizes!
-                    </p>
-                  </div>
-                  <div className={`reg-modal__switch ${joinTreasureHunt ? 'reg-modal__switch--on' : ''}`}>
-                    <div className="reg-modal__switch-thumb" />
-                  </div>
-                </div>
-              )}
-
-              {/* Preview brand slots */}
-              {joinTreasureHunt && treasureBrands.length > 0 && (
-                <div className="reg-modal__preview">
-                  <p style={{ margin: '0 0 8px', fontSize: 'var(--font-xs)', color: 'var(--text-muted)', textAlign: 'center' }}>
-                    Your stamp card will have {treasureBrands.length} slot{treasureBrands.length !== 1 ? 's' : ''}:
-                  </p>
-                  <div className="reg-modal__brands-row">
-                    {treasureBrands.slice(0, 6).map((b) => (
-                      <div key={b.combinedId} className="reg-modal__brand-chip">
-                        {b.logoUrl ? (
-                          <img src={b.logoUrl} alt={b.brandName} className="reg-modal__brand-logo" loading="lazy" />
-                        ) : (
-                          <span style={{ fontSize: '14px' }}>🏢</span>
-                        )}
-                      </div>
-                    ))}
-                    {treasureBrands.length > 6 && (
-                      <div className="reg-modal__brand-chip reg-modal__brand-more">
-                        +{treasureBrands.length - 6}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="reg-modal__footer">
-              <button onClick={() => setShowRegModal(false)} className="btn btn-secondary btn-flex">Cancel</button>
-              <button onClick={handleConfirmRegister} className="btn btn-primary btn-flex">
-                {joinTreasureHunt && treasureBrands.length > 0 ? '🎫 Register & Join Hunt' : 'Register'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <RegistrationModal
+          event={event}
+          treasureBrands={treasureBrands}
+          joinTreasureHunt={joinTreasureHunt}
+          onToggleJoinHunt={() => setJoinTreasureHunt((v) => !v)}
+          onConfirm={handleConfirmRegister}
+          onClose={() => setShowRegModal(false)}
+        />
       )}
     </div>
   );

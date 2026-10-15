@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Searchable company autocomplete dropdown with brand logos.
@@ -8,6 +9,7 @@ import { useState, useEffect, useRef, memo } from 'react';
  * - Clear feedback during debounce and under-length states
  */
 const SearchableCompanyInput = memo(({ value, onChange, brands }) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState(value || '');
   const [debouncedQuery, setDebouncedQuery] = useState(value || '');
@@ -78,12 +80,12 @@ const SearchableCompanyInput = memo(({ value, onChange, brands }) => {
 
   return (
     <div ref={containerRef} style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-      <label htmlFor="company" className="form-label form-label-bold">Company</label>
+      <label htmlFor="company" className="form-label form-label-bold">{t('company')}</label>
       <div style={{ position: 'relative' }}>
         <input
           id="company"
           type="text"
-          placeholder="Type to search or add company..."
+          placeholder={t('companyTypePlaceholder')}
           value={search}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
@@ -101,7 +103,7 @@ const SearchableCompanyInput = memo(({ value, onChange, brands }) => {
               top: '50%',
               transform: 'translateY(-50%)',
               fontSize: '11px',
-              color: 'var(--gold-light)',
+              color: 'var(--accent)',
               pointerEvents: 'none',
               background: 'var(--bg-input)',
               padding: '2px 6px',
@@ -109,7 +111,7 @@ const SearchableCompanyInput = memo(({ value, onChange, brands }) => {
               border: '1px solid var(--border-gold)',
             }}
           >
-            Min 3 chars
+            {t('minCharsIndicator')}
           </span>
         )}
       </div>
@@ -118,11 +120,11 @@ const SearchableCompanyInput = memo(({ value, onChange, brands }) => {
         <div style={dropdownContainerStyle}>
           {isShort ? (
             <div style={{ ...itemStyle, color: 'var(--text-secondary)', cursor: 'default' }}>
-              Type at least 3 characters to search...
+              {t('typeToSearchPrompt')}
             </div>
           ) : isPending ? (
             <div style={{ ...itemStyle, color: 'var(--text-secondary)', cursor: 'default' }}>
-              Searching in 1s...
+              {t('searchingIn1s')}
             </div>
           ) : filtered.length > 0 ? (
             filtered.map((b) => (
@@ -151,7 +153,7 @@ const SearchableCompanyInput = memo(({ value, onChange, brands }) => {
               onClick={() => setIsOpen(false)}
               style={{ ...itemStyle, color: 'var(--text-secondary)', cursor: 'default' }}
             >
-              Add custom company: "<strong>{search}</strong>"
+              {t('addCustomCompany', { company: search })}
             </div>
           )}
         </div>

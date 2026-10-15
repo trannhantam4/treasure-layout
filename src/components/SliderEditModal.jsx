@@ -38,7 +38,10 @@ const SliderEditModal = memo(({
       setImages((prev) => [...prev, uploadedUrl]);
     } catch (err) {
       console.error('Slider image upload error:', err);
-      setError(err.message || 'Image upload failed. Please try again.');
+      const msg = err?.message === 'internal'
+        ? 'Image upload service encountered an issue. Please try again or paste image URL directly.'
+        : (err?.message || 'Image upload failed. Please try again or paste image URL.');
+      setError(msg);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';

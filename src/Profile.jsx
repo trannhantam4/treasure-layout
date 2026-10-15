@@ -5,9 +5,11 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { useBrands } from './hooks/useBrands';
 import SearchableCompanyInput from './components/SearchableCompanyInput';
+import { useTranslation } from 'react-i18next';
 
 function Profile({ user, setUser }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     fullName:  user?.fullName  || '',
@@ -23,8 +25,8 @@ function Profile({ user, setUser }) {
   if (!user) {
     return (
       <section id="center">
-        <h2>You are not logged in.</h2>
-        <button onClick={() => navigate('/login')} className="btn btn-primary" style={{ marginTop: 'var(--space-3)' }}>Go to Login</button>
+        <h2>{t('notLoggedIn')}</h2>
+        <button onClick={() => navigate('/login')} className="btn btn-primary" style={{ marginTop: 'var(--space-3)' }}>{t('goToLogin')}</button>
       </section>
     );
   }
@@ -52,10 +54,10 @@ function Profile({ user, setUser }) {
         address:   form.address,
         phone:     form.phone,
       });
-      setSaveMsg('Profile updated!');
+      setSaveMsg(t('profileUpdated'));
       setEditing(false);
     } catch {
-      setSaveMsg('Failed to save. Please try again.');
+      setSaveMsg(t('profileFailed'));
     } finally {
       setSaving(false);
     }
@@ -82,23 +84,23 @@ function Profile({ user, setUser }) {
         {/* Profile Details or Edit Form */}
         {!editing ? (
           <div className="touchable-card" style={{ flexDirection: 'column', padding: 'var(--space-6)', gap: 'var(--space-3)', cursor: 'default' }}>
-            <InfoRow label="Full Name"  value={user.fullName  || '—'} />
-            <InfoRow label="Company"    value={user.company   || '—'} />
-            <InfoRow label="Position"   value={user.position  || '—'} />
-            <InfoRow label="Address"    value={user.address   || '—'} />
-            <InfoRow label="Phone"      value={user.phone     || '—'} />
+            <InfoRow label={t('fullName')}  value={user.fullName  || '—'} />
+            <InfoRow label={t('company')}   value={user.company   || '—'} />
+            <InfoRow label={t('position')}  value={user.position  || '—'} />
+            <InfoRow label={t('address')}   value={user.address   || '—'} />
+            <InfoRow label={t('phone')}     value={user.phone     || '—'} />
             <button onClick={() => setEditing(true)} className="btn btn-primary" style={{ marginTop: 'var(--space-2)' }}>
-              Edit Profile
+              {t('editProfile')}
             </button>
           </div>
         ) : (
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', background: 'var(--bg-card)', padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border)' }}>
             {[
-              { label: 'Full Name',           name: 'fullName' },
-              { label: 'Company',             name: 'company'  },
-              { label: 'Position in Company', name: 'position' },
-              { label: 'Address',             name: 'address'  },
-              { label: 'Phone',               name: 'phone'    },
+              { label: t('fullName'), name: 'fullName' },
+              { label: t('company'),  name: 'company'  },
+              { label: t('position'), name: 'position' },
+              { label: t('address'),  name: 'address'  },
+              { label: t('phone'),    name: 'phone'    },
             ].map(({ label, name }) => {
               if (name === 'company') {
                 return (
@@ -126,16 +128,16 @@ function Profile({ user, setUser }) {
             })}
             {saveMsg && <p style={{ color: saveMsg.includes('!') ? 'var(--success)' : 'var(--danger)', margin: 0, fontSize: 'var(--font-sm)' }}>{saveMsg}</p>}
             <div className="btn-group" style={{ marginBottom: 0 }}>
-              <button type="button" onClick={() => setEditing(false)} className="btn btn-secondary btn-flex">Cancel</button>
+              <button type="button" onClick={() => setEditing(false)} className="btn btn-secondary btn-flex">{t('cancel')}</button>
               <button type="submit" disabled={saving} className="btn btn-primary btn-flex">
-                {saving ? 'Saving...' : 'Save Changes'}
+                {saving ? t('saving') : t('saveChanges')}
               </button>
             </div>
           </form>
         )}
 
         <button onClick={handleLogout} className="btn btn-danger" style={{ marginTop: 'var(--space-2)' }}>
-          Log Out
+          {t('logOut')}
         </button>
       </div>
     </div>

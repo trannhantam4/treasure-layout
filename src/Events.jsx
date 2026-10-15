@@ -9,7 +9,6 @@ import Modal from './Modal';
 import EventForm from './EventForm';
 import BackToTopButton from './BackToTopButton';
 import { useTranslation } from 'react-i18next';
-import * as XLSX from 'xlsx';
 import { getCachedEventsList, cacheEventsList } from './storage';
 import { canManage } from './utils/auth';
 import { handleFirebaseError } from './utils/firebaseErrors';
@@ -187,7 +186,7 @@ function Events({ user }) {
     
     // Manual validation to ensure the form doesn't fail silently
     if (!formData.eventName || !formData.eventHostest || !formData.eventDateStart || !formData.eventLocation) {
-      toast.warning("Please fill out the Event Name, Host, Start Date, and Location.");
+      toast.warning(t('fillRequiredEventFields'));
       return;
     }
 
@@ -205,7 +204,7 @@ function Events({ user }) {
         cacheEventsList(updated); // Update cache so re-navigation shows the new event
         return updated;
       });
-      toast.success('Event successfully added to Firestore!');
+      toast.success(t('eventAddedSuccess'));
       setShowAddModal(false);
       resetForm();
     } catch (error) {
@@ -249,7 +248,8 @@ function Events({ user }) {
     XLSX.writeFile(workbook, 'TreasureLayout_Events_Export.xlsx');
   };
 
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
+    const XLSX = await import('xlsx');
     const headers = [['Event Name', 'Host', 'Setup Date', 'Start Date', 'End Date', 'Cleanup Date', 'Location', 'PIC', 'Attendees', 'Note', 'Keyview Image URL', 'Layout Images (comma-separated)']];
     const worksheet = XLSX.utils.aoa_to_sheet(headers);
     const workbook = XLSX.utils.book_new();
@@ -265,6 +265,7 @@ function Events({ user }) {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
+        const XLSX = await import('xlsx');
         const bstr = evt.target.result;
         const workbook = XLSX.read(bstr, { type: 'binary' });
         const sheetName = workbook.SheetNames[0];
@@ -272,7 +273,7 @@ function Events({ user }) {
         const json = XLSX.utils.sheet_to_json(worksheet);
 
         if (json.length === 0) {
-          toast.warning("The Excel file is empty or in the wrong format.");
+          toast.warning(t('importEmptyError'));
           return;
         }
 
@@ -321,7 +322,7 @@ function Events({ user }) {
           cacheEventsList(updated);
           return updated;
         });
-        toast.success(`Successfully imported ${json.length} event(s)!`);
+        toast.success(t('importSuccess', { count: json.length }));
       } catch (error) {
         console.error("Error during import:", error);
         toast.error("An error occurred during the import process. Please check console.");
@@ -348,13 +349,13 @@ function Events({ user }) {
               <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                 <input type="file" ref={importFileRef} onChange={handleImport} style={{ display: 'none' }} accept=".xlsx, .xls" />
                 <button onClick={() => importFileRef.current.click()} disabled={isImporting} className="btn btn-info btn-sm">
-                  {isImporting ? 'Importing...' : 'Import'}
+                  {isImporting ? t('importing') : t('import')}
                 </button>
                 <button onClick={handleExport} className="btn btn-warning btn-sm">
-                  Export
+                  {t('export')}
                 </button>
                 <button onClick={handleDownloadTemplate} className="btn btn-secondary btn-sm">
-                  Template
+                  {t('template')}
                 </button>
                 <button onClick={() => setShowAddModal(true)} className="btn btn-primary btn-sm">{t('addEvent')}</button>
               </div>
@@ -362,16 +363,16 @@ function Events({ user }) {
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-3)', marginBottom: 'var(--space-4)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ flex: 1, minWidth: '140px' }}>
-                <label htmlFor="startDateFilter" className="form-label">Start Date</label>
+                <label htmlFor="startDateFilter" className="form-label">{t('startDateFilter')}</label>
                 <input id="startDateFilter" type="date" value={startDateFilter} onChange={(e) => setStartDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
             </div>
             <div style={{ flex: 1, minWidth: '140px' }}>
-                <label htmlFor="endDateFilter" className="form-label">End Date</label>
+                <label htmlFor="endDateFilter" className="form-label">{t('endDateFilter')}</label>
                 <input id="endDateFilter" type="date" value={endDateFilter} onChange={(e) => setEndDateFilter(e.target.value)} className="input-style" style={{ marginBottom: 0 }}/>
             </div>
             {(startDateFilter || endDateFilter) && (
               <button onClick={clearDateFilters} className="btn btn-secondary btn-sm">
-                Clear
+                {t('clearFilter')}
               </button>
             )}
           </div>
@@ -390,7 +391,7 @@ function Events({ user }) {
           {hasMore && (
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 'var(--space-6)', marginBottom: 'var(--space-4)' }}>
               <button onClick={loadMoreEvents} disabled={loadingMore} className="btn btn-primary" style={{ padding: 'var(--space-3) var(--space-6)' }}>
-                {loadingMore ? 'Loading...' : 'Load Next 10 Events'}
+                {loadingMore ? t('loading') : t('loadNextEvents')}
               </button>
             </div>
           )}
@@ -401,7 +402,7 @@ function Events({ user }) {
 
       {/* Add Event Modal */}
       {showAddModal && (
-        <Modal isOpen={showAddModal} onClose={handleCancel} title="Add New Event">
+        <Modal isOpen={showAddModal} onClose={handleCancel} title={t('addEvent')}>
           <EventForm
             formData={formData}
             onFormChange={handleChange}
@@ -413,7 +414,7 @@ function Events({ user }) {
             onSubmit={handleAddSubmit}
             onCancel={handleCancel}
             isSaving={isSaving}
-            submitText="Save Event"
+            submitText={t('saveEventBtn')}
           />
         </Modal>
       )}

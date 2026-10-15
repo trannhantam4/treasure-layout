@@ -1,6 +1,6 @@
 import {
   doc, setDoc, updateDoc, deleteDoc, getDoc,
-  collection, query, where, getDocs, runTransaction, writeBatch
+  collection, query, where, getDocs, onSnapshot, runTransaction, writeBatch
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { assignmentKey, stampKey } from './utils/keys';
@@ -223,12 +223,40 @@ export const getBrandsForEvent = async (eventId) => {
 };
 
 /**
+ * Real-time listener for brand assignments of an event.
+ * Automatically synchronizes changes and returns unsubscribe function.
+ */
+export const subscribeBrandsForEvent = (eventId, onUpdate, onError) => {
+  const q = query(collection(db, 'assignments'), where('eventId', '==', eventId));
+  return onSnapshot(
+    q,
+    (snap) => {
+      onUpdate(snap.docs.map((d) => d.data()));
+    },
+    onError
+  );
+};
+
+/**
  * Get all event assignments for a specific brand (numeric brandId).
  */
 export const getEventsForBrand = async (brandId) => {
   const q = query(collection(db, 'assignments'), where('brandId', '==', brandId));
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data());
+};
+
+/**
+ * Increment a global counter atomically using runTransaction.
+ */
+export const incrementCounter = async (counterName = 'userCounter') => {
+  const counterRef = doc(db, 'counters', counterName);
+  return await runTransaction(db, async (transaction) => {
+    const counterDoc = await transaction.get(counterRef);
+    const newCount = counterDoc.exists() ? (counterDoc.data().count || 0) + 1 : 1;
+    transaction.set(counterRef, { count: newCount }, { merge: true });
+    return newCount;
+  });
 };
 
 /**

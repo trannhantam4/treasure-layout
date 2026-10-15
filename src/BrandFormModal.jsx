@@ -2,6 +2,7 @@ import { useState, useEffect, memo } from 'react';
 import { uploadImageToImgBB } from './Event';
 import BrandLogo from './components/BrandLogo';
 import { modalOverlayStyle, modalCardStyle, modalCloseBtnStyle } from './Modal';
+import { useTranslation } from 'react-i18next';
 
 const EMPTY_FORM = {
   brandName: '',
@@ -13,6 +14,7 @@ const EMPTY_FORM = {
 };
 
 const BrandFormModal = memo(({ onClose, onSubmit, initial = null, prefill = null, saving }) => {
+  const { t } = useTranslation();
   const [form, setForm] = useState(EMPTY_FORM);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [error, setError] = useState('');
@@ -60,7 +62,7 @@ const BrandFormModal = memo(({ onClose, onSubmit, initial = null, prefill = null
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!form.brandName || !form.fieldOfWork) {
-      setError('Brand Name and Field of Work are required.');
+      setError(t('brandNameRequired'));
       return;
     }
     setError('');
@@ -71,7 +73,7 @@ const BrandFormModal = memo(({ onClose, onSubmit, initial = null, prefill = null
     <div style={modalOverlayStyle()} onClick={onClose}>
       <div style={modalCardStyle({ maxWidth: '520px' })} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-5)' }}>
-          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>{initial ? 'Edit Brand' : 'Create New Brand'}</h2>
+          <h2 style={{ margin: 0, fontSize: 'var(--font-xl)' }}>{initial ? t('editBrand') : t('createNewBrand')}</h2>
           <button onClick={onClose} style={modalCloseBtnStyle} aria-label="Close">✕</button>
         </div>
 
@@ -79,7 +81,7 @@ const BrandFormModal = memo(({ onClose, onSubmit, initial = null, prefill = null
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', marginBottom: 'var(--space-2)' }}>
             <BrandLogo url={form.logoUrl} name="logo" size={72} />
             <div style={{ flex: 1 }}>
-              <label htmlFor="logoUpload" className="form-label form-label-bold">Logo Image</label>
+              <label htmlFor="logoUpload" className="form-label form-label-bold">{t('logoImage')}</label>
               <input
                 id="logoUpload"
                 type="file"
@@ -88,37 +90,37 @@ const BrandFormModal = memo(({ onClose, onSubmit, initial = null, prefill = null
                 disabled={uploadingLogo}
                 style={{ display: 'block', marginTop: 'var(--space-1)', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}
               />
-              {uploadingLogo && <span className="upload-status">Uploading...</span>}
+              {uploadingLogo && <span className="upload-status">{t('uploading')}</span>}
             </div>
           </div>
 
           <div>
-            <label htmlFor="brandName" className="form-label form-label-bold">Brand Name *</label>
+            <label htmlFor="brandName" className="form-label form-label-bold">{t('brandName')} *</label>
             <input id="brandName" name="brandName" value={form.brandName} onChange={handleChange} className="input-style" style={{ margin: 0 }} placeholder="TechCo" required />
           </div>
           <div>
-            <label htmlFor="fieldOfWork" className="form-label form-label-bold">Field of Work *</label>
+            <label htmlFor="fieldOfWork" className="form-label form-label-bold">{t('fieldOfWork')} *</label>
             <input id="fieldOfWork" name="fieldOfWork" value={form.fieldOfWork} onChange={handleChange} className="input-style" style={{ margin: 0 }} placeholder="Electronics / Fashion / Food & Beverage" required />
           </div>
           <div>
-            <label htmlFor="companyEmail" className="form-label form-label-bold">Company Email</label>
+            <label htmlFor="companyEmail" className="form-label form-label-bold">{t('companyEmail')}</label>
             <input id="companyEmail" type="email" name="companyEmail" value={form.companyEmail} onChange={handleChange} className="input-style" style={{ margin: 0 }} placeholder="info@techco.com" />
           </div>
           <div>
-            <label htmlFor="phone" className="form-label form-label-bold">Phone</label>
+            <label htmlFor="phone" className="form-label form-label-bold">{t('phone')}</label>
             <input id="phone" type="tel" name="phone" value={form.phone} onChange={handleChange} className="input-style" style={{ margin: 0 }} placeholder="+84 91 234 5678" />
           </div>
           <div>
-            <label htmlFor="address" className="form-label form-label-bold">Address</label>
+            <label htmlFor="address" className="form-label form-label-bold">{t('address')}</label>
             <input id="address" name="address" value={form.address} onChange={handleChange} className="input-style" style={{ margin: 0 }} placeholder="123 Le Loi, HCMC" />
           </div>
 
           {error && <p style={{ color: 'var(--danger)', margin: 0, fontSize: 'var(--font-sm)' }}>{error}</p>}
 
           <div className="btn-group" style={{ marginBottom: 0, marginTop: 'var(--space-2)' }}>
-            <button type="button" onClick={onClose} className="btn btn-secondary btn-flex">Cancel</button>
+            <button type="button" onClick={onClose} className="btn btn-secondary btn-flex">{t('cancel')}</button>
             <button type="submit" disabled={saving || uploadingLogo} className="btn btn-primary btn-flex">
-              {saving ? 'Saving...' : initial ? 'Save Changes' : 'Create Brand'}
+              {saving ? t('saving') : initial ? t('saveChanges') : t('createBrandBtn')}
             </button>
           </div>
         </form>

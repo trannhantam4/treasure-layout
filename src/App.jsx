@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
@@ -7,7 +7,22 @@ import Navigation from './Navigation';
 import Home from './Home';
 import { canManage } from './utils/auth';
 import ToastContainer from './components/Toast';
+import ConfirmDialogContainer from './components/ConfirmDialog';
+import { crashlytics } from './utils/analytics';
 import './App.css';
+
+/**
+ * RouteTracker automatically logs page views to Firebase Analytics on navigation.
+ */
+function RouteTracker() {
+  const location = useLocation();
+
+  useEffect(() => {
+    crashlytics.logPageView(location.pathname + location.search);
+  }, [location]);
+
+  return null;
+}
 
 // Lazy-loaded components
 const Login = lazy(() => import('./Login'));
@@ -59,8 +74,8 @@ function App() {
             });
           } else {
             // Existing user: load full profile data directly
-            const data = snap.data();
-            setUser({
+            const data = snap.data() || {};
+            const profile = {
               uid: currentUser.uid,
               name: currentUser.displayName || data.name || '',
               email: currentUser.email || data.email || '',
@@ -73,15 +88,23 @@ function App() {
               position:   data.position   || '',
               address:    data.address    || '',
               phone:      data.phone      || '',
+            };
+            setUser(profile);
+            crashlytics.setUserId(currentUser.uid);
+            crashlytics.setUserProperties({
+              role: profile.role,
+              company: profile.company || 'unassigned',
             });
           }
           setLoading(false);
         }, (error) => {
           console.error("Error listening to user doc:", error);
+          crashlytics.recordError(error, false, { context: 'user_doc_listener' });
           setLoading(false);
         });
       } else {
         setUser(null);
+        crashlytics.setUserId(null);
         setLoading(false);
       }
     });
@@ -98,7 +121,9 @@ function App() {
 
   return (
     <Router>
+      <RouteTracker />
       <ToastContainer />
+      <ConfirmDialogContainer />
       {/* Onboarding: shown for any logged-in user who hasn't completed their profile */}
       {user && !user.profileCompleted && (
         <Suspense fallback={<div>Loading Onboarding...</div>}>

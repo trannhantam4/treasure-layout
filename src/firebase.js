@@ -33,4 +33,20 @@ export const db = initializeFirestore(app, {
 export const auth = getAuth(app);
 export const functions = getFunctions(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Initialize Firebase Analytics dynamically (guarded for SSR / unsupported browser environments)
+export const analyticsPromise = (async () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const { getAnalytics, isSupported } = await import('firebase/analytics');
+    const supported = await isSupported();
+    if (supported && firebaseConfig.measurementId) {
+      return getAnalytics(app);
+    }
+  } catch (err) {
+    console.warn('Firebase Analytics not supported or failed to initialize:', err);
+  }
+  return null;
+})();
+
 export default app;

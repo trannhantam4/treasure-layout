@@ -5,8 +5,10 @@ import { generateUserDisplayId } from './Brand';
 import { useBrands } from './hooks/useBrands';
 import SearchableCompanyInput from './components/SearchableCompanyInput';
 import { modalOverlayStyle, modalCardStyle } from './Modal';
+import { useTranslation } from 'react-i18next';
 
 function OnboardingModal({ user }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     fullName: user?.name || '',
     company: '',
@@ -26,7 +28,7 @@ function OnboardingModal({ user }) {
     e.preventDefault();
     const { fullName, company, position, address, phone } = form;
     if (!fullName || !company || !position || !address || !phone) {
-      setError('Please fill in all fields.');
+      setError(t('fillAllFields'));
       return;
     }
     setSaving(true);
@@ -44,7 +46,7 @@ function OnboardingModal({ user }) {
       });
     } catch (err) {
       console.error('Onboarding save error:', err);
-      setError('Failed to save profile. Please try again.');
+      setError(t('profileFailed'));
       setSaving(false);
     }
   };
@@ -53,16 +55,16 @@ function OnboardingModal({ user }) {
     <div style={modalOverlayStyle({ zIndex: 9999, background: 'rgba(0,0,0,0.7)', blur: 'blur(8px)' })}>
       <div style={modalCardStyle({ maxWidth: '480px', padding: 'var(--space-8)' })}>
         <div style={{ textAlign: 'center', marginBottom: 'var(--space-6)' }}>
-          <div className="badge badge-accent" style={{ marginBottom: 'var(--space-2)' }}>Welcome</div>
-          <h1 style={{ margin: 'var(--space-2) 0 var(--space-1)', fontSize: 'var(--font-2xl)' }}>Complete Your Profile</h1>
+          <div className="badge badge-accent" style={{ marginBottom: 'var(--space-2)' }}>{t('welcomeBadge')}</div>
+          <h1 style={{ margin: 'var(--space-2) 0 var(--space-1)', fontSize: 'var(--font-2xl)' }}>{t('completeProfileTitle')}</h1>
           <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: 'var(--font-sm)' }}>
-            Tell us a bit about yourself before continuing.
+            {t('completeProfileSubtitle')}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <Field
-            label="Full Name"
+            label={t('fullName')}
             name="fullName"
             value={form.fullName}
             onChange={handleChange}
@@ -74,21 +76,21 @@ function OnboardingModal({ user }) {
             brands={brands}
           />
           <Field
-            label="Position in Company"
+            label={t('position')}
             name="position"
             value={form.position}
             onChange={handleChange}
             placeholder="Marketing Manager"
           />
           <Field
-            label="Address"
+            label={t('address')}
             name="address"
             value={form.address}
             onChange={handleChange}
             placeholder="123 Le Loi, Ho Chi Minh City"
           />
           <Field
-            label="Phone Number"
+            label={t('phone')}
             name="phone"
             value={form.phone}
             onChange={handleChange}
@@ -106,7 +108,7 @@ function OnboardingModal({ user }) {
             className="btn btn-primary"
             style={{ marginTop: 'var(--space-2)', padding: 'var(--space-3)', fontSize: 'var(--font-md)', fontWeight: '600' }}
           >
-            {saving ? 'Saving...' : 'Continue to App →'}
+            {saving ? t('saving') : t('continueToApp')}
           </button>
         </form>
       </div>

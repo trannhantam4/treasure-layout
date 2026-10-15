@@ -7,6 +7,7 @@ import { getCachedEventsList, cacheEventsList } from './storage';
 import { canManage } from './utils/auth';
 import SliderEditModal from './components/SliderEditModal';
 import { toast } from './utils/toast';
+import { useTranslation } from 'react-i18next';
 
 const DEFAULT_SLIDERS = {
   slider1: [
@@ -22,6 +23,7 @@ const DEFAULT_SLIDERS = {
 };
 
 function Home({ user }) {
+  const { t } = useTranslation();
   const canEdit = canManage(user);
   const slider1Ref = useRef(null);
   const slider2Ref = useRef(null);
@@ -152,10 +154,10 @@ function Home({ user }) {
         }}>
           <div style={{
             position: 'absolute', inset: 0,
-            background: 'radial-gradient(circle at 50% 0%, rgba(223, 183, 108, 0.18), transparent 70%)',
+            background: 'radial-gradient(circle at 50% 0%, rgba(2, 132, 199, 0.2), transparent 70%)',
             pointerEvents: 'none'
           }} />
-          <span className="badge badge-accent" style={{ marginBottom: 'var(--space-3)' }}>Event Layout &amp; Treasure Hunt Platform</span>
+          <span className="badge badge-accent" style={{ marginBottom: 'var(--space-3)' }}>{t('heroBadge')}</span>
           <h1 style={{
             fontSize: 'clamp(1.75rem, 4vw, 2.5rem)',
             fontFamily: 'var(--font-serif)',
@@ -166,19 +168,19 @@ function Home({ user }) {
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             margin: 'var(--space-3) 0',
-            filter: 'drop-shadow(0 2px 10px rgba(223, 183, 108, 0.2))'
+            filter: 'drop-shadow(0 2px 10px rgba(233, 71, 14, 0.3))'
           }}>
-            Discover &amp; Connect at Top Events
+            {t('heroTitle')}
           </h1>
           <p style={{ color: 'var(--text-secondary)', maxWidth: '540px', margin: '0 auto var(--space-2)', fontSize: 'var(--font-base)', lineHeight: 'var(--leading-loose)' }}>
-            Explore floor plans, connect with premier brands, and collect digital stamps to win prizes.
+            {t('heroSubtitle')}
           </p>
         </section>
 
         {/* Featured Galleries Slider */}
         <div className="slider-container">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-            <h2 className="slider-title" style={{ margin: 0 }}>Featured Galleries</h2>
+            <h2 className="slider-title" style={{ margin: 0 }}>{t('featuredGalleries')}</h2>
             {canEdit && (
               <button
                 type="button"
@@ -187,7 +189,7 @@ function Home({ user }) {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 aria-label="Edit Featured Galleries Images"
               >
-                ✏️ Edit Slider
+                ✏️ {t('editSlider')}
               </button>
             )}
           </div>
@@ -205,7 +207,7 @@ function Home({ user }) {
         {/* New Arrivals Slider */}
         <div className="slider-container">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-            <h2 className="slider-title" style={{ margin: 0 }}>New Floor Layouts</h2>
+            <h2 className="slider-title" style={{ margin: 0 }}>{t('newFloorLayouts')}</h2>
             {canEdit && (
               <button
                 type="button"
@@ -214,7 +216,7 @@ function Home({ user }) {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                 aria-label="Edit New Floor Layouts Images"
               >
-                ✏️ Edit Slider
+                ✏️ {t('editSlider')}
               </button>
             )}
           </div>
@@ -231,10 +233,10 @@ function Home({ user }) {
 
         {/* Upcoming Events */}
         <div className="slider-container">
-          <h2 className="slider-title">Upcoming Events</h2>
+          <h2 className="slider-title">{t('upcomingEvents')}</h2>
           <div className="events-scroll-view">
             {upcomingEvents.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>Loading upcoming events...</p>
+              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>{t('loadingUpcomingEvents')}</p>
             ) : (
               upcomingEvents.map((event) => (
                 <EventCard key={event.eventId} event={event} />
@@ -251,7 +253,7 @@ function Home({ user }) {
         <SliderEditModal
           isOpen={Boolean(editingSlider)}
           onClose={() => setEditingSlider(null)}
-          sliderTitle={editingSlider === 'slider1' ? 'Featured Galleries' : 'New Floor Layouts'}
+          sliderTitle={editingSlider === 'slider1' ? t('featuredGalleries') : t('newFloorLayouts')}
           currentImages={editingSlider === 'slider1' ? sliderImages1 : sliderImages2}
           onSave={handleSaveSlider}
           saving={savingSlider}

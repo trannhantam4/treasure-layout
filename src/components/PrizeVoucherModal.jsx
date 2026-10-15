@@ -3,6 +3,7 @@ import { claimPrizeTicket } from '../Brand';
 import { modalOverlayStyle, modalCardStyle } from '../Modal';
 import BrandLogo from './BrandLogo';
 import { canManage } from '../utils/auth';
+import { useTranslation } from 'react-i18next';
 
 /**
  * PrizeVoucherModal — Official Finished Ticket & Prize Voucher Pass
@@ -18,6 +19,7 @@ const PrizeVoucherModal = memo(({
   currentUser,
   onClaimed
 }) => {
+  const { t } = useTranslation();
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState('');
   const [showStaffPrompt, setShowStaffPrompt] = useState(false);
@@ -99,10 +101,10 @@ const PrizeVoucherModal = memo(({
 
           <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '2px' }}>🏆</span>
           <h2 style={{ margin: 0, fontSize: 'var(--font-xl)', fontWeight: 800, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            Prize Claim Voucher
+            {t('prizeClaimVoucher')}
           </h2>
           <p style={{ margin: '2px 0 0', fontSize: 'var(--font-xs)', fontWeight: 700, opacity: 0.9 }}>
-            TREASURE HUNT COMPLETION PASS
+            {t('treasureHuntPass')}
           </p>
         </div>
 
@@ -128,12 +130,12 @@ const PrizeVoucherModal = memo(({
               letterSpacing: '0.05em'
             }}>
               <span>{isClaimed ? '🔒' : '✨'}</span>
-              <span>{isClaimed ? 'PRIZE REDEEMED / CLAIMED' : 'READY TO CLAIM PRIZE'}</span>
+              <span>{isClaimed ? t('prizeRedeemedStatus') : t('readyToClaimStatus')}</span>
             </div>
             <p style={{ margin: '4px 0 0', fontSize: 'var(--font-xs)', color: 'var(--text-secondary)' }}>
               {isClaimed
-                ? `Redeemed on ${new Date(ticket.claimedAt).toLocaleString()} (Staff: ${ticket.claimedBy || 'Verified'})`
-                : 'Show this official screen to the organizers at the counter to claim your reward.'}
+                ? t('redeemedDetails', { date: new Date(ticket.claimedAt).toLocaleString(), staff: ticket.claimedBy || 'Verified' })
+                : t('presentScreenPrompt')}
             </p>
           </div>
 
@@ -147,38 +149,38 @@ const PrizeVoucherModal = memo(({
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px dashed var(--border)', paddingBottom: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
               <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em' }}>Event</span>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em' }}>{t('eventLabel')}</span>
                 <div style={{ fontWeight: 700, fontSize: 'var(--font-base)', color: 'var(--text-primary)' }}>{eventName}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em' }}>Voucher Ref</span>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.05em' }}>{t('voucherRefLabel')}</span>
                 <div style={{ fontWeight: 800, fontSize: '11px', color: '#f59e0b', fontFamily: 'monospace' }}>{voucherCode}</div>
               </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
               <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>Winner Name</span>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>{t('winnerNameLabel')}</span>
                 <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)', color: 'var(--text-primary)' }}>
                   {user?.fullName || user?.userName || user?.name || 'Attendee'}
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>Company</span>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>{t('company')}</span>
                 <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
                   {user?.company || 'Visitor'}
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>Display ID</span>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>{t('displayIdLabel')}</span>
                 <div style={{ fontWeight: 600, fontSize: 'var(--font-xs)', color: 'var(--text-primary)' }}>
                   #{user?.displayId || user?.uid?.slice(0, 8)?.toUpperCase()}
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>Stamps Collected</span>
+                <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--text-muted)', fontWeight: 700 }}>{t('stampsCollectedLabel')}</span>
                 <div style={{ fontWeight: 700, fontSize: 'var(--font-xs)', color: 'var(--success)' }}>
-                  ✓ {stampedSlots.length} of {totalStamps} booths
+                  {t('boothsVerified', { count: stampedSlots.length, total: totalStamps })}
                 </div>
               </div>
             </div>
@@ -220,7 +222,7 @@ const PrizeVoucherModal = memo(({
               letterSpacing: '0.04em',
               textTransform: 'uppercase',
             }}>
-              Official Winner Pass
+              {t('officialWinnerPass')}
             </div>
             <div style={{
               fontFamily: 'monospace',
@@ -242,14 +244,14 @@ const PrizeVoucherModal = memo(({
               color: 'var(--text-secondary)',
               fontWeight: 600,
             }}>
-              ✨ All {totalStamps} booths verified • Present this pass to collect your reward
+              {t('allBoothsVerifiedPass', { count: totalStamps })}
             </span>
           </div>
 
           {/* Collected Stamps Summary List */}
           <div style={{ marginBottom: 'var(--space-4)' }}>
             <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block', marginBottom: 'var(--space-2)' }}>
-              Completed Booths ({stampedSlots.length})
+              {t('completedBoothsTitle', { count: stampedSlots.length })}
             </span>
             <div style={{
               display: 'flex',
@@ -279,7 +281,7 @@ const PrizeVoucherModal = memo(({
                     </span>
                   </div>
                   <span style={{ fontSize: 'var(--font-xs)', color: 'var(--success)', fontWeight: 700 }}>
-                    ✓ Stamped
+                    {t('stampedTag')}
                   </span>
                 </div>
               ))}
@@ -309,7 +311,7 @@ const PrizeVoucherModal = memo(({
                     boxShadow: '0 4px 15px rgba(245, 158, 11, 0.4)',
                   }}
                 >
-                  🎁 Staff: Mark as Prize Handed Out
+                  {t('staffHandoutBtn')}
                 </button>
               ) : (
                 <div style={{
@@ -320,14 +322,14 @@ const PrizeVoucherModal = memo(({
                   textAlign: 'left'
                 }}>
                   <span style={{ fontSize: 'var(--font-xs)', fontWeight: 700, color: 'var(--text-primary)', display: 'block', marginBottom: '4px' }}>
-                    Confirm Prize Handout
+                    {t('confirmHandoutTitle')}
                   </span>
                   <p style={{ margin: '0 0 var(--space-2)', fontSize: '11px', color: 'var(--text-secondary)' }}>
-                    Only event organizers should tap confirm. This locks the ticket so it cannot be claimed twice.
+                    {t('staffWarning')}
                   </p>
                   <input
                     type="text"
-                    placeholder="Staff Name / Booth # (Optional)"
+                    placeholder={t('staffNamePlaceholder')}
                     value={staffNameInput}
                     onChange={(e) => setStaffNameInput(e.target.value)}
                     className="input-style"
@@ -343,7 +345,7 @@ const PrizeVoucherModal = memo(({
                       disabled={claiming}
                       className="btn btn-secondary btn-sm btn-flex"
                     >
-                      Cancel
+                      {t('cancel')}
                     </button>
                     <button
                       type="button"
@@ -352,7 +354,7 @@ const PrizeVoucherModal = memo(({
                       className="btn btn-primary btn-sm btn-flex"
                       style={{ background: 'var(--success)', border: 'none' }}
                     >
-                      {claiming ? 'Confirming...' : '✓ Confirm Handout'}
+                      {claiming ? t('saving') : t('confirmHandoutAction')}
                     </button>
                   </div>
                 </div>
@@ -371,14 +373,14 @@ const PrizeVoucherModal = memo(({
           alignItems: 'center',
         }}>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-            Present to organizers to claim
+            {t('presentToOrganizers')}
           </span>
           <button
             type="button"
             onClick={onClose}
             className="btn btn-secondary btn-sm"
           >
-            Close Pass
+            {t('closePassBtn')}
           </button>
         </div>
       </div>

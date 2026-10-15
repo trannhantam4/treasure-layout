@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect, useCallback, memo, lazy, Suspense } from 'react';
 import { getOrCreateStampTicket } from './Brand';
 import { cacheStampTicket, getCachedStampTicket } from './storage';
 import { stampKey } from './utils/keys';
-import QRScanModal from './QRScanModal';
+const QRScanModal = lazy(() => import('./QRScanModal')); // html5-qrcode loaded only when scanner opens
 import PrizeVoucherModal from './components/PrizeVoucherModal';
+import { useTranslation } from 'react-i18next';
 
 /**
  * StampTicket — Mobile-first responsive treasure hunt stamp card.
@@ -11,6 +12,7 @@ import PrizeVoucherModal from './components/PrizeVoucherModal';
  * Ticket is saved to device storage for offline access.
  */
 function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
+  const { t } = useTranslation();
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
@@ -75,11 +77,11 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
       {/* Header */}
       <div className="stamp-ticket__header">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h3 className="stamp-ticket__title">🎫 Treasure Hunt</h3>
+          <h3 className="stamp-ticket__title">🎫 {t('treasureHuntBadge')}</h3>
           <p className="stamp-ticket__subtitle">{eventName}</p>
         </div>
         <div className="stamp-ticket__badge" data-done={allDone}>
-          {ticket?.claimed ? '✓ CLAIMED' : `${stamped}/${total}`}
+          {ticket?.claimed ? t('claimedBadge') : `${stamped}/${total}`}
         </div>
       </div>
 
@@ -92,10 +94,10 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
         />
       </div>
       <p className="stamp-ticket__progress-label">
-        {allDone ? 'All stamps collected!' : `${progressPct}% complete — ${total - stamped} stamps remaining`}
+        {allDone ? t('allStampsCollected') : t('stampsProgress', { pct: progressPct, remaining: total - stamped })}
       </p>
 
-      {loading && <p className="stamp-ticket__status">Loading your stamp card...</p>}
+      {loading && <p className="stamp-ticket__status">{t('loadingStampCard')}</p>}
       {error && <p className="stamp-ticket__status stamp-ticket__status--error">{error}</p>}
 
       {/* Stamp slots grid — responsive */}
@@ -128,12 +130,12 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
             <span style={{ fontSize: '2.5rem', flexShrink: 0 }}>{ticket?.claimed ? '🎖️' : '🏆'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: '700', fontSize: 'var(--font-md)', color: ticket?.claimed ? 'var(--success)' : '#f59e0b' }}>
-                {ticket?.claimed ? 'Prize Claimed & Redeemed!' : 'Treasure Hunt Complete!'}
+                {ticket?.claimed ? t('prizeClaimedRedeemed') : t('treasureHuntComplete')}
               </div>
               <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>
                 {ticket?.claimed
-                  ? `Redeemed on ${new Date(ticket.claimedAt).toLocaleDateString()} — Thank you for participating!`
-                  : `You visited all ${total} brand booths! Present your Finished Ticket to claim your prize.`}
+                  ? t('redeemedOnDate', { date: new Date(ticket.claimedAt).toLocaleDateString() })
+                  : t('allBoothsVisited', { count: total })}
               </div>
             </div>
           </div>
@@ -161,7 +163,7 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
               transition: 'transform 0.15s ease',
             }}
           >
-            <span>{ticket?.claimed ? '🎫 View Claimed Voucher' : '🎁 Show Finished Ticket / Claim Prize'}</span>
+            <span>{ticket?.claimed ? t('viewClaimedVoucher') : t('showFinishedTicket')}</span>
             <span style={{ fontSize: '18px' }}>→</span>
           </button>
         </div>
@@ -173,17 +175,19 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
           onClick={() => setShowScanner(true)}
           className="btn btn-primary stamp-ticket__scan-btn"
         >
-          📷 Scan QR to Stamp
+          {t('scanQrToStamp')}
         </button>
       )}
 
       {showScanner && (
-        <QRScanModal
-          eventId={eventId}
-          userId={user.uid}
-          onStamped={handleStamped}
-          onClose={() => setShowScanner(false)}
-        />
+        <Suspense fallback={null}>
+          <QRScanModal
+            eventId={eventId}
+            userId={user.uid}
+            onStamped={handleStamped}
+            onClose={() => setShowScanner(false)}
+          />
+        </Suspense>
       )}
 
       {showPrizeModal && (
