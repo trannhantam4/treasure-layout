@@ -57,7 +57,7 @@ const PrizeVoucherModal = memo(({
       <div
         className="prize-voucher-modal"
         style={{
-          ...modalCardStyle({ maxWidth: '440px', padding: '0', maxHeight: '90vh' }),
+          ...modalCardStyle({ maxWidth: '440px', padding: '0' }),
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',

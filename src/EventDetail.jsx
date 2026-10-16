@@ -498,42 +498,19 @@ function EventDetail({ user }) {
   };
 
   const handleBrandAssigned = (assignmentOrArray) => {
-    if (Array.isArray(assignmentOrArray)) {
-      setAssignedBrands((prev) => [...prev, ...assignmentOrArray]);
-    } else {
-      setAssignedBrands((prev) => [...prev, assignmentOrArray]);
-    }
+    const incoming = Array.isArray(assignmentOrArray) ? assignmentOrArray : [assignmentOrArray];
+    setAssignedBrands((prev) => {
+      const map = new Map(prev.map((a) => [a.combinedId, a]));
+      incoming.forEach((a) => {
+        if (a?.combinedId) map.set(a.combinedId, a);
+      });
+      return Array.from(map.values());
+    });
   };
 
   const handleExportAssignedBrands = async () => {
-    if (assignedBrands.length === 0) {
-      toast.warning('No brands assigned to this event yet.');
-      return;
-    }
-    const XLSX = await import('xlsx');
-    const rows = assignedBrands.map((a) => ({
-      'Brand ID': a.brandId,
-      'Brand Name': a.brandName,
-      'Rank': a.rank,
-      'Booth Position': a.position || '',
-      'Treasure Holder': a.isTreasureHolder ? 'Yes' : 'No',
-      'Field of Work': a.fieldOfWork || '',
-      'Assigned At': a.assignedAt ? new Date(a.assignedAt).toLocaleString() : '',
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = [
-      { wch: 12 },
-      { wch: 25 },
-      { wch: 15 },
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 25 },
-      { wch: 22 },
-    ];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Assigned Brands');
-    const safeEventName = (event?.eventName || 'Event').replace(/[/\\?%*:|"<>]/g, '_');
-    XLSX.writeFile(wb, `${safeEventName}_Assigned_Brands.xlsx`);
+    const { exportAssignedBrandsExcel } = await import('./utils/brandExcel');
+    await exportAssignedBrandsExcel(assignedBrands, event?.eventName || 'Event');
   };
 
   // Resolves true when the assignment was removed, false on cancel/failure.
@@ -658,6 +635,7 @@ function EventDetail({ user }) {
           <BrandDetailModal
             key={selectedBrandDetail.combinedId}
             brand={selectedBrandDetail}
+            user={user}
             canEdit={canEdit}
             onRegisterQrCanvas={(combinedId, el) => {
               qrCanvasRefs.current[combinedId] = el;

@@ -7,7 +7,7 @@ import SearchInput from './SearchInput';
 import Pagination from './components/Pagination';
 import { modalOverlayStyle, modalCardStyle, modalCloseBtnStyle } from './Modal';
 import { useTranslation } from 'react-i18next';
-import { downloadBrandAssignmentTemplate } from './utils/brandExcel';
+import { downloadBrandAssignmentTemplate, parseBrandAssignmentExcel } from './utils/brandExcel';
 
 const RANKS = ['gold', 'silver', 'bronze', 'standard'];
 
@@ -88,7 +88,7 @@ const AssignBrandModal = memo(({
   };
 
   /* ─── Excel Import File Parser ─── */
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -96,114 +96,22 @@ const AssignBrandModal = memo(({
     setError('');
     setBatchSuccessMsg('');
 
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const XLSX = await import('xlsx');
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: 'binary' });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const rawJson = XLSX.utils.sheet_to_json(worksheet);
-
-        if (!rawJson || rawJson.length === 0) {
-          setError('The Excel file is empty or missing data rows.');
-          setIsParsing(false);
-          return;
-        }
-
-        const seenCombinedIds = new Set();
-        const parsed = rawJson.map((row, idx) => {
-          // Dynamic case-insensitive key extraction
-          const rowKeys = Object.keys(row);
-          const findVal = (keywords) => {
-            const k = rowKeys.find((key) =>
-              keywords.some((kw) => key.toLowerCase().replace(/[^a-z0-9]/g, '').includes(kw))
-            );
-            return k ? String(row[k]).trim() : '';
-          };
-
-          const brandNameRaw = findVal(['brandname', 'brand', 'name']);
-          const brandIdRaw = findVal(['brandid', 'id']);
-          const rankRaw = findVal(['rank']).toLowerCase();
-          const validRank = ['gold', 'silver', 'bronze', 'standard'].includes(rankRaw) ? rankRaw : 'standard';
-          const posRaw = findVal(['boothposition', 'position', 'booth', 'pos']);
-
-          // Match against global brand catalog
-          let matched = null;
-          if (brandIdRaw) {
-            matched = brands.find((b) => String(b.brandId) === String(brandIdRaw));
-          }
-          if (!matched && brandNameRaw) {
-            matched = brands.find(
-              (b) => b.brandName?.trim().toLowerCase() === brandNameRaw.toLowerCase()
-            );
-          }
-
-          if (!matched) {
-            return {
-              rowIdx: idx + 2,
-              inputName: brandNameRaw || `Row #${idx + 2}`,
-              inputId: brandIdRaw,
-              rank: validRank,
-              position: posRaw,
-              status: 'not_found',
-              reason: 'Brand not found in catalog',
-            };
-          }
-
-          const combinedId = assignmentKey(event.eventId, matched.brandId);
-          if (assignedBrandIds.includes(combinedId)) {
-            return {
-              rowIdx: idx + 2,
-              inputName: matched.brandName,
-              inputId: matched.brandId,
-              matchedBrand: matched,
-              rank: validRank,
-              position: posRaw,
-              status: 'already_assigned',
-              reason: 'Already assigned to this event',
-            };
-          }
-
-          if (seenCombinedIds.has(combinedId)) {
-            return {
-              rowIdx: idx + 2,
-              inputName: matched.brandName,
-              inputId: matched.brandId,
-              matchedBrand: matched,
-              rank: validRank,
-              position: posRaw,
-              status: 'duplicate',
-              reason: 'Duplicate entry in Excel file',
-            };
-          }
-
-          seenCombinedIds.add(combinedId);
-
-          return {
-            rowIdx: idx + 2,
-            inputName: matched.brandName,
-            inputId: matched.brandId,
-            matchedBrand: matched,
-            rank: validRank,
-            position: posRaw,
-            status: 'ready',
-          };
-        });
-
-        setExcelRows(parsed);
-        setUploadFileName(file.name);
-      } catch (err) {
-        console.error('Error parsing Excel:', err);
-        setError('Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file.');
-      } finally {
-        setIsParsing(false);
-      }
-    };
-
-    reader.readAsBinaryString(file);
-    e.target.value = '';
+    try {
+      const parsed = await parseBrandAssignmentExcel(
+        file,
+        brands,
+        event.eventId,
+        assignedBrandIds
+      );
+      setExcelRows(parsed);
+      setUploadFileName(file.name);
+    } catch (err) {
+      console.error('Error parsing Excel:', err);
+      setError(err.message || 'Failed to parse Excel file. Please ensure it is a valid .xlsx or .xls file.');
+    } finally {
+      setIsParsing(false);
+      e.target.value = '';
+    }
   };
 
   /* ─── Batch Assign from Excel ─── */
@@ -246,7 +154,6 @@ const AssignBrandModal = memo(({
       <div
         style={{
           ...modalCardStyle({ maxWidth: tab === 'excel' && excelRows.length > 0 ? '660px' : '540px' }),
-          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
           transition: 'max-width var(--duration-normal) var(--ease-out)',

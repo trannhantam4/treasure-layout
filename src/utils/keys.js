@@ -5,3 +5,5 @@
  */
 export const assignmentKey = (eventId, brandId) => `${eventId}-${brandId}`;
 export const stampKey = (eventId, userId) => `${eventId}-${userId}`;
+export const relativeKey = (eventId, brandId, userId) => `${eventId}-${brandId}-${userId}`;
+

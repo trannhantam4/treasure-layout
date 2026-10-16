@@ -166,7 +166,11 @@ function BrandManager({ user }) {
     try {
       const created = await batchCreateBrands(importPreviewData.validBrands, user.uid);
       setBrands((prev) => {
-        const next = [...prev, ...created];
+        const map = new Map(prev.map((b) => [b.brandId, b]));
+        created.forEach((b) => {
+          if (b?.brandId) map.set(b.brandId, b);
+        });
+        const next = Array.from(map.values());
         cacheBrandCatalog(next);
         return next;
       });
@@ -289,6 +293,14 @@ function BrandManager({ user }) {
 
               {/* Actions */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', flexShrink: 0 }}>
+                <button
+                  onClick={() => navigate(`/brand-visitors?brandId=${encodeURIComponent(brand.brandId)}`)}
+                  className="btn btn-ghost btn-sm"
+                  aria-label={`View visitors for ${brand.brandName}`}
+                  title={t('brandVisitorsNav', 'Brand Visitors')}
+                >
+                  👥
+                </button>
                 <button onClick={() => { setEditTarget(brand); setShowFormModal(true); }} className="btn btn-ghost btn-sm" aria-label={`Edit ${brand.brandName}`} title={t('edit')}>✏️</button>
                 <button onClick={() => handleDelete(brand)} className="btn btn-ghost btn-sm" aria-label={`Delete ${brand.brandName}`} title={t('delete')}>🗑️</button>
               </div>

@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 const SCANNER_ID = 'qr-reader-container';
 
-const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
+const QRScanModal = memo(({ eventId, userId, user = null, onStamped, onClose }) => {
   const { t } = useTranslation();
   const [status, setStatus] = useState('scanning');
   const [message, setMessage] = useState('');
@@ -46,7 +46,7 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
       } finally {
         try {
           scanner.clear();
-        } catch (_) {}
+        } catch { /* ignore */ }
       }
     }
     stopAllMediaTracks();
@@ -82,13 +82,13 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
             } finally {
               try {
                 html5QrCode.clear();
-              } catch (_) {}
+              } catch { /* ignore */ }
             }
           }
           stopAllMediaTracks();
 
           try {
-            const updated = await stampSlot(eventId, userId, decodedText.trim());
+            const updated = await stampSlot(eventId, userId, decodedText.trim(), user);
             const stampedSlot = updated.slots.find((s) => s.combinedId === decodedText.trim());
             setStampedBrand(stampedSlot);
             setStatus('success');
@@ -140,7 +140,7 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
           } finally {
             try {
               html5QrCode.clear();
-            } catch (_) {}
+            } catch { /* ignore */ }
           }
           stopAllMediaTracks();
         }
@@ -162,11 +162,11 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
         try {
           if (html5QrCode.isScanning) {
             html5QrCode.stop().finally(() => {
-              try { html5QrCode.clear(); } catch (_) {}
+              try { html5QrCode.clear(); } catch { /* ignore */ }
               stopAllMediaTracks();
             });
           } else {
-            try { html5QrCode.clear(); } catch (_) {}
+            try { html5QrCode.clear(); } catch { /* ignore */ }
             stopAllMediaTracks();
           }
         } catch (e) {
@@ -177,7 +177,7 @@ const QRScanModal = memo(({ eventId, userId, onStamped, onClose }) => {
         stopAllMediaTracks();
       }
     };
-  }, [eventId, userId, onStamped, t]);
+  }, [eventId, userId, user, onStamped, t]);
 
   const handleClose = async () => {
     await shutdownScanner();

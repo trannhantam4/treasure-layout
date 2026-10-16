@@ -38,7 +38,7 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
       .catch(() => {});
 
     // 2. Sync from Firestore (source of truth)
-    getOrCreateStampTicket(eventId, user.uid, eventName, brands)
+    getOrCreateStampTicket(eventId, user.uid, eventName, brands, user)
       .then((data) => {
         setTicket(data);
         cacheStampTicket(ticketId, data);
@@ -184,6 +184,7 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
           <QRScanModal
             eventId={eventId}
             userId={user.uid}
+            user={user}
             onStamped={handleStamped}
             onClose={() => setShowScanner(false)}
           />

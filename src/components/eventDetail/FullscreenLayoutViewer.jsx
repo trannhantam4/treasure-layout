@@ -54,7 +54,7 @@ function FullscreenLayoutViewer({ editor, canEdit, onDeleteImage }) {
         position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
         backgroundColor: 'rgba(0,0,0,0.92)', zIndex: 9999,
         display: 'flex', justifyContent: 'center', alignItems: 'center',
-        padding: '16px', boxSizing: 'border-box', overflow: 'hidden',
+        padding: 'calc(72px + 16px) 16px 16px', boxSizing: 'border-box', overflow: 'hidden',
       }}
       onClick={() => {
         if (draggingPinIndex === null && !hasDraggedRef.current) closeViewer();
@@ -64,7 +64,7 @@ function FullscreenLayoutViewer({ editor, canEdit, onDeleteImage }) {
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
-            position: 'absolute', top: '16px', left: '16px', zIndex: 10,
+            position: 'absolute', top: 'calc(72px + 16px)', left: '16px', zIndex: 10,
             background: 'rgba(0,0,0,0.75)', borderRadius: '8px', padding: '8px 12px',
             display: 'flex', flexDirection: 'column', gap: '8px',
             backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.15)',
@@ -98,7 +98,7 @@ function FullscreenLayoutViewer({ editor, canEdit, onDeleteImage }) {
         </div>
       )}
 
-      <div style={{ position: 'absolute', top: '16px', right: '16px', display: 'flex', gap: '8px', alignItems: 'center', zIndex: 10 }}>
+      <div style={{ position: 'absolute', top: 'calc(72px + 16px)', right: '16px', display: 'flex', gap: '8px', alignItems: 'center', zIndex: 10 }}>
         {canEdit && fullscreenImageIndex !== null && (
           <button
             style={{

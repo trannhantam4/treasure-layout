@@ -5,10 +5,9 @@ service cloud.firestore {
 
     // Helper function to get the role of the currently authenticated user.
     function getUserRole() {
-      if (request.auth == null) {
-        return 'visitor';
-      }
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+      return request.auth == null
+        ? 'visitor'
+        : get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
     // Helper function to check if the user has one of the specified roles.
@@ -18,13 +17,12 @@ service cloud.firestore {
 
     // Rules for the 'users' collection
     match /users/{userId} {
-      allow read: if request.auth.uid == userId || isOneOfRoles(['admin', 'manager']);
+      allow read: if request.auth != null && (request.auth.uid == userId || isOneOfRoles(['admin', 'manager']));
 
       // Users can create their own doc with role forced to 'visitor'
-      allow create: if request.auth.uid == userId
-                    && request.resource.data.role == 'visitor'
-                    && request.resource.data.keys().hasAll(['uid', 'name', 'email', 'role'])
-                    && request.resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && (!('role' in request.resource.data) || request.resource.data.role == 'visitor');
 
       // Self-update: cannot change own role. Admin: full access. Manager: cannot promote to admin/manager.
       allow update: if (request.auth.uid == userId && request.resource.data.role == resource.data.role)
@@ -103,25 +101,54 @@ service cloud.firestore {
                      request.resource.data.count == resource.data.count + 1);
     }
 
-    // Rules for the 'stamps' collection (user treasure hunt stamp tickets)
+    // Rules for the 'counters' collection (auto-increment display IDs)
+    match /counters/{docId} {
+      allow read: if request.auth != null;
+
+      allow create: if request.auth != null &&
+                    docId == 'userCounter' &&
+                    request.resource.data.count == 1;
+
+      allow update: if isOneOfRoles(['admin', 'manager']) ||
+                    (request.auth != null &&
+                     docId == 'userCounter' &&
+                     request.resource.data.count == resource.data.get('count', 0) + 1);
+    }
+
+    // Rules for the 'stamps' collection (completed user treasure hunt stamp tickets)
     match /stamps/{stampId} {
       allow read: if request.auth != null &&
-                  (resource.data.userId == request.auth.uid ||
+                  (resource == null ||
+                   resource.data.userId == request.auth.uid ||
                    isOneOfRoles(['admin', 'manager']));
 
       allow create: if request.auth != null &&
                     request.resource.data.userId == request.auth.uid &&
                     stampId == request.resource.data.eventId + '-' + request.auth.uid;
 
-      // Users can update their own stamps: 'slots' for stamping, and 'claimed', 'claimedAt', 'claimedBy' for prize redemption.
+      // Users can update their own completed stamps: 'slots', 'completedAt', 'syncedToFirestore', and 'claimed', 'claimedAt', 'claimedBy' for prize redemption.
       allow update: if request.auth != null &&
                     (
                       (resource.data.userId == request.auth.uid &&
-                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'claimed', 'claimedAt', 'claimedBy']))
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['slots', 'completedAt', 'syncedToFirestore', 'claimed', 'claimedAt', 'claimedBy']))
                       || isOneOfRoles(['admin', 'manager'])
                     );
 
       allow delete: if isOneOfRoles(['admin']);
+    }
+
+    // Rules for the 'relative' collection (brand booth visitor relationships: {eventId}-{brandId}-{userId})
+    match /relative/{relativeId} {
+      allow read: if request.auth != null;
+
+      allow create, update: if request.auth != null &&
+                            (
+                              (request.resource.data.userId == request.auth.uid &&
+                               relativeId == request.resource.data.eventId + '-' + request.resource.data.brandId + '-' + request.auth.uid)
+                              || isOneOfRoles(['admin', 'manager'])
+                            );
+
+      allow delete: if isOneOfRoles(['admin', 'manager']);
     }
 
     // Rules for the 'logs' collection (change audit logs)

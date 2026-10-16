@@ -168,8 +168,14 @@ function Admin({ user }) {
     try {
       const { doc: docRef, updateDoc, collection: colRef, addDoc } = await import('firebase/firestore');
       const oldCompany = targetUser.company || '';
+      const matchedBrand = brands.find(
+        (b) => (b.brandName || '').trim().toLowerCase() === (newCompany || '').trim().toLowerCase()
+      );
 
-      await updateDoc(docRef(db, 'users', targetUser.id), { company: newCompany });
+      await updateDoc(docRef(db, 'users', targetUser.id), {
+        company: newCompany,
+        brandId: matchedBrand ? matchedBrand.brandId : '',
+      });
 
       // Log the change
       await addDoc(colRef(db, 'logs'), {

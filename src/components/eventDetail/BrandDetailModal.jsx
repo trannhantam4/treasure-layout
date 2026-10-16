@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
 import BrandLogo from '../BrandLogo';
 import { modalOverlayStyle, modalCardStyle } from '../../Modal';
@@ -17,6 +18,7 @@ const monoValueStyle = { fontSize: 'var(--font-sm)', fontWeight: '600', color: '
  */
 function BrandDetailModal({
   brand,
+  user,
   canEdit,
   onRegisterQrCanvas,
   onClose,
@@ -29,9 +31,19 @@ function BrandDetailModal({
   onReloadQR,           // (combinedId) => void
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [editPosition, setEditPosition] = useState(brand.position || '');
   const [savingPosition, setSavingPosition] = useState(false);
   const [positionSaved, setPositionSaved] = useState(false);
+
+  const isMyBrand = Boolean(
+    user &&
+      ((user.brandId && String(user.brandId) === String(brand.brandId)) ||
+        (user.company &&
+          brand.brandName &&
+          user.company.trim().toLowerCase() === brand.brandName.trim().toLowerCase()))
+  );
+  const canViewVisitors = Boolean(canEdit || isMyBrand);
 
   const positionUnchanged = editPosition.trim() === (brand.position || '');
 
@@ -185,6 +197,25 @@ function BrandDetailModal({
               </div>
             </div>
           </div>
+        )}
+
+        {/* View Booth Visitors button (for brand members & admins/managers) */}
+        {canViewVisitors && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              const params = new URLSearchParams();
+              if (brand.brandId) params.set('brandId', brand.brandId);
+              if (brand.eventId) params.set('eventId', brand.eventId);
+              navigate(`/brand-visitors?${params.toString()}`);
+            }}
+            className="btn btn-primary btn-sm"
+            style={{ width: '100%', marginBottom: canEdit ? 'var(--space-3)' : 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+          >
+            <span>👥</span>
+            <span>{t('viewMyBrandVisitorsBtn', { brand: brand.brandName, defaultValue: `View ${brand.brandName} Booth Visitors` })}</span>
+          </button>
         )}
 
         {/* Admin management actions */}

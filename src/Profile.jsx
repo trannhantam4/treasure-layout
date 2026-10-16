@@ -1,9 +1,11 @@
-import { useState, memo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from './firebase';
 import { useBrands } from './hooks/useBrands';
+import { clearUserSessionStorage } from './storage';
+import { canManage } from './utils/auth';
 import SearchableCompanyInput from './components/SearchableCompanyInput';
 import { useTranslation } from 'react-i18next';
 
@@ -22,6 +24,17 @@ function Profile({ user, setUser }) {
   const [saveMsg, setSaveMsg] = useState('');
   const { brands } = useBrands();
 
+  const matchedBrand = useMemo(() => {
+    if (!user || !brands || brands.length === 0) return null;
+    if (user.brandId) {
+      const byId = brands.find((b) => String(b.brandId) === String(user.brandId));
+      if (byId) return byId;
+    }
+    const company = (user.company || '').trim().toLowerCase();
+    if (!company) return null;
+    return brands.find((b) => (b.brandName || '').trim().toLowerCase() === company) || null;
+  }, [user, brands]);
+
   if (!user) {
     return (
       <section id="center">
@@ -33,6 +46,7 @@ function Profile({ user, setUser }) {
 
   const handleLogout = async () => {
     try {
+      await clearUserSessionStorage();
       await signOut(auth);
       setUser(null);
     } catch (error) {
@@ -47,9 +61,13 @@ function Profile({ user, setUser }) {
     setSaving(true);
     setSaveMsg('');
     try {
+      const matching = brands.find(
+        (b) => (b.brandName || '').trim().toLowerCase() === (form.company || '').trim().toLowerCase()
+      );
       await updateDoc(doc(db, 'users', user.uid), {
         fullName:  form.fullName,
         company:   form.company,
+        brandId:   matching ? matching.brandId : '',
         position:  form.position,
         address:   form.address,
         phone:     form.phone,
@@ -79,6 +97,23 @@ function Profile({ user, setUser }) {
           )}
           <h1 style={{ margin: 0, fontSize: 'var(--font-2xl)' }}>{user.fullName || user.name}</h1>
           <span style={{ fontSize: 'var(--font-sm)', color: 'var(--text-secondary)' }}>{user.email}</span>
+          {(matchedBrand || user.brandId || user.company?.trim() || canManage(user)) && (
+            <button
+              type="button"
+              onClick={() => navigate('/brand-visitors')}
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: 'var(--space-2)', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <span>👥</span>
+              <span>
+                {matchedBrand
+                  ? t('viewMyBrandVisitorsBtn', { brand: matchedBrand.brandName, defaultValue: `View ${matchedBrand.brandName} Booth Visitors` })
+                  : user.company?.trim()
+                    ? t('viewMyBrandVisitorsBtn', { brand: user.company.trim(), defaultValue: `View ${user.company.trim()} Booth Visitors` })
+                    : t('brandVisitorsTitle', 'Brand Booth Visitors')}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Profile Details or Edit Form */}
@@ -89,9 +124,22 @@ function Profile({ user, setUser }) {
             <InfoRow label={t('position')}  value={user.position  || '—'} />
             <InfoRow label={t('address')}   value={user.address   || '—'} />
             <InfoRow label={t('phone')}     value={user.phone     || '—'} />
-            <button onClick={() => setEditing(true)} className="btn btn-primary" style={{ marginTop: 'var(--space-2)' }}>
-              {t('editProfile')}
-            </button>
+            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginTop: 'var(--space-2)' }}>
+              <button onClick={() => setEditing(true)} className="btn btn-primary" style={{ flex: 1 }}>
+                {t('editProfile')}
+              </button>
+              {(matchedBrand || user.brandId || user.company?.trim() || canManage(user)) && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/brand-visitors')}
+                  className="btn btn-secondary"
+                  style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  <span>👥</span>
+                  <span>{t('brandVisitorsNav', 'Brand Visitors')}</span>
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', background: 'var(--bg-card)', padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)', border: '1px solid var(--border)' }}>
@@ -151,11 +199,6 @@ const InfoRow = memo(({ label, value }) => {
       <span style={{ fontWeight: '500', color: 'var(--text-primary)', textAlign: 'right' }}>{value}</span>
     </div>
   );
-}
-);
-function roleColor(role) {
-  const map = { admin: 'var(--role-admin)', manager: 'var(--role-manager)', 'vip buyer': 'var(--role-vip)', visitor: 'var(--role-visitor)' };
-  return map[role] || 'var(--accent)';
-}
+});
 
-export default Profile;
+export default Profile;

@@ -1,15 +1,28 @@
 import { Link, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from './hooks/useTheme';
+import { useBrands } from './hooks/useBrands';
 import { canManage } from './utils/auth';
 import Logo from './Logo.png';
 
 function Navigation({ user }) {
   const { theme, toggleTheme } = useTheme();
   const { t, i18n } = useTranslation();
+  const { brands } = useBrands();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
+
+  const canAccessBrandVisitors = useMemo(() => {
+    if (!user) return false;
+    if (canManage(user)) return true;
+    if (user.brandId || (user.company && user.company.trim())) return true;
+    return brands.some(
+      (b) =>
+        String(b.brandId) === String(user.brandId) ||
+        (b.brandName || '').trim().toLowerCase() === (user.company || '').trim().toLowerCase()
+    );
+  }, [user, brands]);
 
   const currentLang = (i18n.language || 'en').toLowerCase().startsWith('vi') ? 'vi' : 'en';
 
@@ -51,6 +64,13 @@ function Navigation({ user }) {
                 {t('events', 'Events')}
               </Link>
             </li>
+            {canAccessBrandVisitors && (
+              <li>
+                <Link to="/brand-visitors" className={`nav-link ${isActive('/brand-visitors')}`} onClick={closeMenu}>
+                  {t('brandVisitorsNav', 'Brand Visitors')}
+                </Link>
+              </li>
+            )}
             {canManage(user) && (
               <li>
                 <Link to="/brands" className={`nav-link ${isActive('/brands')}`} onClick={closeMenu}>
@@ -147,6 +167,13 @@ function Navigation({ user }) {
                 <span>{t('events', 'Events')}</span>
               </Link>
             </li>
+            {canAccessBrandVisitors && (
+              <li>
+                <Link to="/brand-visitors" className={`nav-mobile-link ${isActive('/brand-visitors')}`} onClick={closeMenu}>
+                  <span>{t('brandVisitorsNav', 'Brand Visitors')}</span>
+                </Link>
+              </li>
+            )}
             {canManage(user) && (
               <li>
                 <Link to="/brands" className={`nav-mobile-link ${isActive('/brands')}`} onClick={closeMenu}>

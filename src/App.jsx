@@ -31,6 +31,7 @@ const EventDetail = lazy(() => import('./EventDetail'));
 const Profile = lazy(() => import('./Profile'));
 const Admin = lazy(() => import('./Admin'));
 const BrandManager = lazy(() => import('./BrandManager'));
+const BrandVisitors = lazy(() => import('./BrandVisitors'));
 const OnboardingModal = lazy(() => import('./OnboardingModal'));
 
 function App() {
@@ -70,7 +71,7 @@ function App() {
               photoURL: currentUser.photoURL || '',
               role: 'visitor',
               profileCompleted: false,
-              displayId: '', fullName: '', company: '', position: '', address: '', phone: '',
+              displayId: '', fullName: '', company: '', brandId: '', position: '', address: '', phone: '',
             });
           } else {
             // Existing user: load full profile data directly
@@ -85,6 +86,7 @@ function App() {
               displayId:  data.displayId  || '',
               fullName:   data.fullName   || '',
               company:    data.company    || '',
+              brandId:    data.brandId    || '',
               position:   data.position   || '',
               address:    data.address    || '',
               phone:      data.phone      || '',
@@ -139,6 +141,11 @@ function App() {
             <Route path="/events/:id" element={<EventDetail user={user} />} />
             <Route path="/profile" element={<Profile user={user} setUser={setUser} />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/brand-visitors" element={
+              user
+                ? <BrandVisitors user={user} />
+                : <Navigate to="/login" replace />
+            } />
             <Route path="/admin" element={
               canManage(user)
                 ? <Admin user={user} />

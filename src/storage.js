@@ -13,7 +13,7 @@ export async function setDeviceData(key, value, ttlMinutes = TTL_MEDIUM) {
     const record = {
       value,
       timestamp: Date.now(),
-      ttlMs: ttlMinutes * 60 * 1000,
+      ttlMs: ttlMinutes ? ttlMinutes * 60 * 1000 : null,
     };
     await set(key, record);
     return true;
@@ -66,6 +66,35 @@ export async function clearDeviceStorage() {
   }
 }
 
+/**
+ * Clear only user-specific session cached data on explicit logout while preserving
+ * public caches (tl_brands_catalog, tl_events_list) and local in-progress stamp cards
+ * (tl_stamp_{eventId}-{userId}, which are already keyed per userId and not synced to
+ * Firestore until all slots are completed).
+ */
+export async function clearUserSessionStorage() {
+  try {
+    const allKeys = await keys();
+    const userKeyPrefixes = [
+      'tl_reg_',
+      'tl_hunt_',
+      'tl_attended_layouts_',
+      'tl_img_blob_',
+    ];
+    await Promise.all(
+      allKeys
+        .filter((k) => typeof k === 'string' && userKeyPrefixes.some((p) => k.startsWith(p)))
+        .map((k) => del(k))
+    );
+
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      await window.caches.delete('tl_attended_layout_images_v1');
+    }
+  } catch (error) {
+    console.warn('[DeviceStorage] Failed to clear user session storage:', error);
+  }
+}
+
 /* ================================================================
    APPLICATION-SPECIFIC STORAGE HELPERS
    ================================================================ */
@@ -96,9 +125,9 @@ export async function getCachedBrandCatalog() {
   return getDeviceData(KEY_BRANDS_CATALOG);
 }
 
-// 4. User Stamp Ticket Caching
+// 4. User Stamp Ticket Caching (no TTL expiration so in-progress local stamps never expire)
 export async function cacheStampTicket(ticketId, ticketData) {
-  return setDeviceData(`tl_stamp_${ticketId}`, ticketData, TTL_MEDIUM);
+  return setDeviceData(`tl_stamp_${ticketId}`, ticketData, null);
 }
 export async function getCachedStampTicket(ticketId) {
   return getDeviceData(`tl_stamp_${ticketId}`);

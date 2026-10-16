@@ -35,9 +35,13 @@ function OnboardingModal({ user }) {
     setError('');
     try {
       const displayId = await generateUserDisplayId();
+      const matchedBrand = brands.find(
+        (b) => (b.brandName || '').trim().toLowerCase() === (company || '').trim().toLowerCase()
+      );
       await updateDoc(doc(db, 'users', user.uid), {
         fullName,
         company,
+        brandId: matchedBrand ? matchedBrand.brandId : '',
         position,
         address,
         phone,

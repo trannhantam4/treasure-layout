@@ -28,7 +28,8 @@ export const modalOverlayStyle = (options = {}) => ({
   backdropFilter: options.blur || 'blur(12px)',
   WebkitBackdropFilter: options.blur || 'blur(12px)',
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  padding: 'var(--space-4)',
+  padding: 'calc(72px + var(--space-5)) var(--space-4) var(--space-5)',
+  boxSizing: 'border-box',
 });
 
 export const modalCardStyle = (options = {}) => ({
@@ -40,7 +41,7 @@ export const modalCardStyle = (options = {}) => ({
   padding: options.padding || 'var(--space-6)',
   boxShadow: options.shadow || 'var(--shadow-lg), 0 0 32px rgba(2, 132, 199, 0.15)',
   boxSizing: 'border-box',
-  maxHeight: options.maxHeight || '90vh',
+  maxHeight: options.maxHeight || 'calc(100dvh - 116px)',
   overflowY: options.overflow || 'auto',
 });
 
