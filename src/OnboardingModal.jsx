@@ -2,32 +2,55 @@ import { useState, memo } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { generateUserDisplayId } from './Brand';
-import { useBrands } from './hooks/useBrands';
-import SearchableCompanyInput from './components/SearchableCompanyInput';
 import { modalOverlayStyle, modalCardStyle } from './Modal';
+import { toast } from './utils/toast';
 import { useTranslation } from 'react-i18next';
+
+const ADMIN_CONTACT_PHONE = '0338842685';
 
 function OnboardingModal({ user }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({
     fullName: user?.name || '',
-    company: '',
     position: '',
     address: '',
     phone: '',
   });
   const [saving, setSaving] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
   const [error, setError] = useState('');
-  const { brands } = useBrands();
 
   const handleChange = (e) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
+  const handleCopyAdminPhone = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(ADMIN_CONTACT_PHONE);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = ADMIN_CONTACT_PHONE;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedPhone(true);
+      toast.success(t('adminPhoneCopiedToast', 'Phone number 0338842685 copied to clipboard!'));
+      setTimeout(() => setCopiedPhone(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy phone number:', err);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const { fullName, company, position, address, phone } = form;
-    if (!fullName || !company || !position || !address || !phone) {
+    const { fullName, position, address, phone } = form;
+    if (!fullName || !position || !address || !phone) {
       setError(t('fillAllFields'));
       return;
     }
@@ -35,13 +58,10 @@ function OnboardingModal({ user }) {
     setError('');
     try {
       const displayId = await generateUserDisplayId();
-      const matchedBrand = brands.find(
-        (b) => (b.brandName || '').trim().toLowerCase() === (company || '').trim().toLowerCase()
-      );
       await updateDoc(doc(db, 'users', user.uid), {
         fullName,
-        company,
-        brandId: matchedBrand ? matchedBrand.brandId : '',
+        company: user?.company || '',
+        brandId: user?.brandId || '',
         position,
         address,
         phone,
@@ -74,11 +94,30 @@ function OnboardingModal({ user }) {
             onChange={handleChange}
             placeholder="Nguyen Van A"
           />
-          <SearchableCompanyInput
-            value={form.company}
-            onChange={(val) => setForm(prev => ({ ...prev, company: val }))}
-            brands={brands}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label className="form-label form-label-bold">{t('company')}</label>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+              padding: 'var(--space-3)',
+              borderRadius: 'var(--radius-md)',
+              background: 'var(--bg-input)',
+              border: '1px dashed var(--border-gold)',
+            }}>
+              <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                {t('companyAdminOnlyNote', '🔒 Only Admin can assign or change your company & QR code access. Contact Admin:')}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyAdminPhone}
+                className="btn btn-secondary btn-sm"
+                style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                <span>{copiedPhone ? t('copiedAdminPhoneBtn', '✓ Copied: 0338842685') : t('copyAdminPhoneBtn', '📋 Copy Admin Phone: 0338842685')}</span>
+              </button>
+            </div>
+          </div>
           <Field
             label={t('position')}
             name="position"

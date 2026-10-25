@@ -24,8 +24,14 @@ service cloud.firestore {
                     && request.auth.uid == userId
                     && (!('role' in request.resource.data) || request.resource.data.role == 'visitor');
 
-      // Self-update: cannot change own role. Admin: full access. Manager: cannot promote to admin/manager.
-      allow update: if (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+      // Self-update: cannot change own role, and cannot self-assign company or brandId (only Admin/Manager can set those).
+      // Admin: full access. Manager: cannot promote to admin/manager.
+      allow update: if (
+                         request.auth.uid == userId &&
+                         request.resource.data.role == resource.data.role &&
+                         request.resource.data.get('company', '') == resource.data.get('company', '') &&
+                         request.resource.data.get('brandId', '') == resource.data.get('brandId', '')
+                       )
                     || isOneOfRoles(['admin'])
                     || (
                          isOneOfRoles(['manager']) &&

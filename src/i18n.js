@@ -79,6 +79,10 @@ const resources = {
       typeToSearchPrompt: 'Type at least 3 characters to search...',
       searchingIn1s: 'Searching in 1s...',
       addCustomCompany: 'Add custom company: "{{company}}"',
+      companyAdminOnlyNote: '🔒 Only Admin can assign or change your company & QR code access. Contact Admin:',
+      copyAdminPhoneBtn: '📋 Copy Admin Phone: 0338842685',
+      copiedAdminPhoneBtn: '✓ Copied: 0338842685',
+      adminPhoneCopiedToast: 'Phone number 0338842685 copied to clipboard!',
 
       // Onboarding Modal
       completeProfileTitle: 'Complete Your Profile',
@@ -374,6 +378,10 @@ const resources = {
       typeToSearchPrompt: 'Nhập ít nhất 3 ký tự để tìm kiếm...',
       searchingIn1s: 'Đang tìm sau 1 giây...',
       addCustomCompany: 'Thêm công ty tùy chỉnh: "{{company}}"',
+      companyAdminOnlyNote: '🔒 Chỉ Admin mới có thể phân bổ hoặc đổi công ty & mã QR của bạn. Liên hệ Admin:',
+      copyAdminPhoneBtn: '📋 Sao chép SĐT Admin: 0338842685',
+      copiedAdminPhoneBtn: '✓ Đã sao chép: 0338842685',
+      adminPhoneCopiedToast: 'Đã sao chép số điện thoại 0338842685 vào bộ nhớ tạm!',
 
       // Onboarding Modal
       completeProfileTitle: 'Hoàn Tất Hồ Sơ Của Bạn',

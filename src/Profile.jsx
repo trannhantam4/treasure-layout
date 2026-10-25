@@ -7,12 +7,16 @@ import { useBrands } from './hooks/useBrands';
 import { clearUserSessionStorage } from './storage';
 import { canManage } from './utils/auth';
 import SearchableCompanyInput from './components/SearchableCompanyInput';
+import { toast } from './utils/toast';
 import { useTranslation } from 'react-i18next';
+
+const ADMIN_CONTACT_PHONE = '0338842685';
 
 function Profile({ user, setUser }) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
   const [form, setForm] = useState({
     fullName:  user?.fullName  || '',
     company:   user?.company   || '',
@@ -23,6 +27,8 @@ function Profile({ user, setUser }) {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
   const { brands } = useBrands();
+
+  const isAdmin = user?.role?.toLowerCase() === 'admin';
 
   const matchedBrand = useMemo(() => {
     if (!user || !brands || brands.length === 0) return null;
@@ -54,6 +60,30 @@ function Profile({ user, setUser }) {
     }
   };
 
+  const handleCopyAdminPhone = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(ADMIN_CONTACT_PHONE);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = ADMIN_CONTACT_PHONE;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopiedPhone(true);
+      toast.success(t('adminPhoneCopiedToast', 'Phone number 0338842685 copied to clipboard!'));
+      setTimeout(() => setCopiedPhone(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy phone number:', err);
+      toast.error('Could not copy phone number.');
+    }
+  };
+
   const handleChange = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   const handleSave = async (e) => {
@@ -61,17 +91,23 @@ function Profile({ user, setUser }) {
     setSaving(true);
     setSaveMsg('');
     try {
-      const matching = brands.find(
-        (b) => (b.brandName || '').trim().toLowerCase() === (form.company || '').trim().toLowerCase()
-      );
-      await updateDoc(doc(db, 'users', user.uid), {
-        fullName:  form.fullName,
-        company:   form.company,
-        brandId:   matching ? matching.brandId : '',
-        position:  form.position,
-        address:   form.address,
-        phone:     form.phone,
-      });
+      const updates = {
+        fullName: form.fullName,
+        position: form.position,
+        address:  form.address,
+        phone:    form.phone,
+      };
+
+      // Only Admin can set or change a user's company / brand QR code linkage
+      if (isAdmin) {
+        const matching = brands.find(
+          (b) => (b.brandName || '').trim().toLowerCase() === (form.company || '').trim().toLowerCase()
+        );
+        updates.company = form.company;
+        updates.brandId = matching ? matching.brandId : '';
+      }
+
+      await updateDoc(doc(db, 'users', user.uid), updates);
       setSaveMsg(t('profileUpdated'));
       setEditing(false);
     } catch {
@@ -152,12 +188,49 @@ function Profile({ user, setUser }) {
             ].map(({ label, name }) => {
               if (name === 'company') {
                 return (
-                  <SearchableCompanyInput
-                    key={name}
-                    value={form.company}
-                    onChange={(val) => setForm(prev => ({ ...prev, company: val }))}
-                    brands={brands}
-                  />
+                  <div key={name} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {isAdmin ? (
+                      <SearchableCompanyInput
+                        value={form.company}
+                        onChange={(val) => setForm((prev) => ({ ...prev, company: val }))}
+                        brands={brands}
+                      />
+                    ) : (
+                      <div>
+                        <label htmlFor="company-readonly" className="form-label form-label-bold">{label}</label>
+                        <input
+                          id="company-readonly"
+                          type="text"
+                          value={user.company || '—'}
+                          disabled
+                          readOnly
+                          className="input-style"
+                          style={{ margin: 0, opacity: 0.65, cursor: 'not-allowed' }}
+                        />
+                      </div>
+                    )}
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                      padding: 'var(--space-3)',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-input)',
+                      border: '1px dashed var(--border-gold)',
+                    }}>
+                      <span style={{ fontSize: 'var(--font-xs)', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                        {t('companyAdminOnlyNote', '🔒 Only Admin can assign or change your company & QR code access. Contact Admin:')}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyAdminPhone}
+                        className="btn btn-secondary btn-sm"
+                        style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        <span>{copiedPhone ? t('copiedAdminPhoneBtn', '✓ Copied: 0338842685') : t('copyAdminPhoneBtn', '📋 Copy Admin Phone: 0338842685')}</span>
+                      </button>
+                    </div>
+                  </div>
                 );
               }
               return (
