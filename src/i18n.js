@@ -209,6 +209,15 @@ const resources = {
       noUsersFound: 'No users found.',
       userRoleUpdated: 'User role updated to {{role}}',
       userCompanyUpdated: 'Successfully changed company of {{name}} to "{{company}}".',
+      confirmRoleChangeTitle: 'CHANGE USER ROLE',
+      confirmRoleChangeMsg: 'Change role of "{{name}}" to "{{role}}"?',
+      confirmCompanyChangeTitle: 'CHANGE USER COMPANY & QR ACCESS',
+      confirmCompanyChangeMsg: 'Assign "{{name}}" to company "{{company}}"? This controls their access to that brand\'s QR booth visitor data.',
+      criticalProcessCheckBtn: 'Critical Process Check',
+      criticalProcessCheckTitle: '🩺 Critical Process Check',
+      rerunChecksBtn: '🔄 Re-run Checks',
+      recentCriticalProcessesTitle: 'Session Critical Process Executions',
+      recentAuditLogsTitle: 'Recent Security Audit Logs (/logs)',
 
       // Stamp Ticket & Treasure Hunt
       treasureHuntBadge: 'Treasure Hunt',
@@ -263,6 +272,16 @@ const resources = {
       // Confirm Dialog
       confirmActionTitle: 'Confirm Action',
       confirmationBadge: 'CONFIRMATION',
+      logoutConfirmTitle: 'LOG OUT',
+      logoutConfirmMsg: 'Are you sure you want to log out of your account?',
+      unregisterConfirmTitle: 'UNREGISTER FROM EVENT',
+      unregisterConfirmMsg: 'Are you sure you want to unregister from this event?',
+      enableTreasureConfirmTitle: 'ENABLE TREASURE HOLDER QR',
+      enableTreasureConfirmMsg: 'Enable Treasure Hunt QR code for this brand booth?',
+      removeTreasureConfirmTitle: 'REMOVE TREASURE HOLDER QR',
+      removeTreasureConfirmMsg: 'Remove Treasure Hunt QR code from this brand booth?',
+      syncStampsConfirmTitle: 'SYNC STAMP RECORDS',
+      syncStampsConfirmMsg: 'Scan all completed stamp tickets in Firestore and backfill missing visitor records into the /relative collection?',
 
       // Event Info & Layout Viewer
       deleteImageBtn: '🗑️ Delete',
@@ -508,6 +527,15 @@ const resources = {
       noUsersFound: 'Không tìm thấy người dùng nào.',
       userRoleUpdated: 'Đã cập nhật vai trò người dùng thành {{role}}',
       userCompanyUpdated: 'Đã đổi công ty của {{name}} thành "{{company}}".',
+      confirmRoleChangeTitle: 'THAY ĐỔI VAI TRÒ NGƯỜI DÙNG',
+      confirmRoleChangeMsg: 'Đổi vai trò của "{{name}}" thành "{{role}}"?',
+      confirmCompanyChangeTitle: 'ĐỔI CÔNG TY & QUYỀN MÃ QR',
+      confirmCompanyChangeMsg: 'Phân bổ "{{name}}" vào công ty "{{company}}"? Thao tác này cấp/cập nhật quyền xem dữ liệu khách quét QR của thương hiệu đó.',
+      criticalProcessCheckBtn: 'Kiểm Tra Hệ Thống',
+      criticalProcessCheckTitle: '🩺 Kiểm Tra Tiến Trình Trọng Yếu',
+      rerunChecksBtn: '🔄 Kiểm tra lại',
+      recentCriticalProcessesTitle: 'Tiến Trình Trọng Yếu Trong Phiên',
+      recentAuditLogsTitle: 'Nhật Ký Bảo Mật Gần Đây (/logs)',
 
       // Stamp Ticket & Treasure Hunt
       treasureHuntBadge: 'Săn Kho Báu',
@@ -562,6 +590,16 @@ const resources = {
       // Confirm Dialog
       confirmActionTitle: 'Xác Nhận Thao Tác',
       confirmationBadge: 'XÁC NHẬN',
+      logoutConfirmTitle: 'ĐĂNG XUẤT',
+      logoutConfirmMsg: 'Bạn có chắc chắn muốn đăng xuất khỏi tài khoản không?',
+      unregisterConfirmTitle: 'HỦY ĐĂNG KÝ SỰ KIỆN',
+      unregisterConfirmMsg: 'Bạn có chắc chắn muốn hủy đăng ký tham gia sự kiện này?',
+      enableTreasureConfirmTitle: 'BẬT MÃ QR SĂN KHO BÁU',
+      enableTreasureConfirmMsg: 'Bật mã QR Săn Kho Báu cho gian hàng thương hiệu này?',
+      removeTreasureConfirmTitle: 'GỠ MÃ QR SĂN KHO BÁU',
+      removeTreasureConfirmMsg: 'Gỡ mã QR Săn Kho Báu khỏi gian hàng thương hiệu này?',
+      syncStampsConfirmTitle: 'ĐỒNG BỘ DỮ LIỆU THẺ TEM',
+      syncStampsConfirmMsg: 'Quét tất cả thẻ tem đã hoàn thành trên Firestore và đồng bộ dữ liệu khách ghé thăm vào bộ sưu tập /relative?',
 
       // Event Info & Layout Viewer
       deleteImageBtn: '🗑️ Xóa',

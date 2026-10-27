@@ -1441,3 +1441,18 @@ html, body {
 #qr-reader-container canvas {
   display: none !important;
 }
+
+
+/* Clickable Stamp Slot on Treasure Hunt Ticket */
+.stamp-slot[data-clickable="true"] {
+  cursor: pointer;
+}
+.stamp-slot[data-clickable="true"]:hover {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.2);
+}
+.stamp-slot[data-clickable="true"]:active {
+  transform: scale(0.97);
+}

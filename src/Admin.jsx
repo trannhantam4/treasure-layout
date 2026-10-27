@@ -7,7 +7,10 @@ import { canManage } from './utils/auth';
 import { useBrands } from './hooks/useBrands';
 import EmptyState from './components/EmptyState';
 import Pagination from './components/Pagination';
+import SystemHealthModal from './components/SystemHealthModal';
 import { toast } from './utils/toast';
+import { confirmDialog } from './utils/confirm';
+import { crashlytics } from './utils/analytics';
 import { useTranslation } from 'react-i18next';
 
 const ALL_ROLES = ['visitor', 'vip buyer', 'manager', 'admin'];
@@ -21,6 +24,11 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
   const [localSelection, setLocalSelection] = useState(initialSelection);
   const [isEditingCustom, setIsEditingCustom] = useState(false);
   const [customVal, setCustomVal] = useState(currentCompany);
+
+  useEffect(() => {
+    setLocalSelection(initialSelection);
+    setCustomVal(currentCompany);
+  }, [initialSelection, currentCompany]);
 
   return (
     <div className="touchable-card" style={{ padding: 'var(--space-4)', flexDirection: 'column', gap: 'var(--space-2)', cursor: 'default' }}>
@@ -54,17 +62,19 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
           <span style={{ fontWeight: '500', fontSize: 'var(--font-sm)' }}>{t('companyLabel')} </span>
           <select
             value={localSelection}
-            onChange={(e) => {
+            onChange={async (e) => {
               const val = e.target.value;
               setLocalSelection(val);
               if (val === 'other') {
                 setIsEditingCustom(true);
               } else if (val === '') {
-                onCompanyChange(user, '');
+                const ok = await onCompanyChange(user, '');
+                if (!ok) setLocalSelection(initialSelection);
                 setIsEditingCustom(false);
               } else {
                 const brandObj = brands.find(b => String(b.brandId) === String(val));
-                onCompanyChange(user, brandObj ? brandObj.brandName : '');
+                const ok = await onCompanyChange(user, brandObj ? brandObj.brandName : '');
+                if (!ok) setLocalSelection(initialSelection);
                 setIsEditingCustom(false);
               }
             }}
@@ -87,14 +97,18 @@ function UserRow({ user, onRoleChange, brands, onCompanyChange }) {
               onChange={(e) => setCustomVal(e.target.value)}
               style={{ padding: '4px 8px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 'var(--font-xs)', width: '160px' }}
             />
-            <button 
-              type="button" 
-              onClick={() => {
+            <button
+              type="button"
+              onClick={async () => {
                 if (customVal.trim()) {
-                  onCompanyChange(user, customVal.trim());
+                  const ok = await onCompanyChange(user, customVal.trim());
+                  if (!ok) {
+                    setLocalSelection(initialSelection);
+                    setCustomVal(currentCompany);
+                  }
                   setIsEditingCustom(false);
                 }
-              }} 
+              }}
               className="btn btn-primary"
               style={{ padding: '2px 8px', fontSize: 'var(--font-xs)' }}
             >
@@ -115,6 +129,7 @@ function Admin({ user }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showHealthModal, setShowHealthModal] = useState(false);
   const { brands } = useBrands();
 
   useEffect(() => {
@@ -153,10 +168,41 @@ function Admin({ user }) {
     return () => unsubscribe();
   }, [user, navigate]);
 
-  const handleRoleChange = async (userId, newRole) => {
+  const handleRoleChange = async (userId, newRole, oldRole) => {
+    if (newRole === oldRole) return;
+    const targetUser = users.find((u) => u.id === userId);
+    const ok = await confirmDialog({
+      title: t('confirmRoleChangeTitle', 'CHANGE USER ROLE'),
+      message: t('confirmRoleChangeMsg', {
+        name: targetUser?.name || userId,
+        role: newRole,
+        defaultValue: `Change role of "${targetUser?.name || userId}" from "${oldRole || 'visitor'}" to "${newRole}"?`,
+      }),
+      confirmText: t('confirm', 'Confirm'),
+      confirmVariant: newRole === 'admin' ? 'danger' : 'warning',
+      icon: '🛡️',
+    });
+    if (!ok) return;
+
     try {
-      const { doc: docRef, updateDoc } = await import('firebase/firestore');
-      await updateDoc(docRef(db, 'users', userId), { role: newRole });
+      await crashlytics.trackCriticalProcess(
+        'admin_change_user_role',
+        async () => {
+          const { doc: docRef, updateDoc, collection: colRef, addDoc } = await import('firebase/firestore');
+          await updateDoc(docRef(db, 'users', userId), { role: newRole });
+          await addDoc(colRef(db, 'logs'), {
+            changerUid: user.uid,
+            changerName: user.fullName || user.name || 'Admin/Manager',
+            targetUserUid: userId,
+            targetUserName: targetUser?.name || targetUser?.fullName || '',
+            oldRole: oldRole || 'visitor',
+            newRole,
+            timestamp: new Date().toISOString(),
+            action: 'change_user_role',
+          });
+        },
+        { targetUserUid: userId, oldRole, newRole }
+      );
       toast.success(t('userRoleUpdated', { role: newRole }));
     } catch (error) {
       console.error("Error updating role:", error);
@@ -165,34 +211,57 @@ function Admin({ user }) {
   };
 
   const handleCompanyChange = async (targetUser, newCompany) => {
+    const oldCompany = targetUser.company || '';
+    if (oldCompany.trim() === (newCompany || '').trim()) return true;
+
+    const ok = await confirmDialog({
+      title: t('confirmCompanyChangeTitle', 'CHANGE USER COMPANY & QR ACCESS'),
+      message: t('confirmCompanyChangeMsg', {
+        name: targetUser.name,
+        company: newCompany || t('noneUnknown', 'None'),
+        defaultValue: `Assign "${targetUser.name}" to company "${newCompany || 'None'}"? This controls their access to that brand's QR booth visitor data.`,
+      }),
+      confirmText: t('confirm', 'Confirm'),
+      confirmVariant: 'warning',
+      icon: '🏢',
+    });
+    if (!ok) return false;
+
     try {
-      const { doc: docRef, updateDoc, collection: colRef, addDoc } = await import('firebase/firestore');
-      const oldCompany = targetUser.company || '';
-      const matchedBrand = brands.find(
-        (b) => (b.brandName || '').trim().toLowerCase() === (newCompany || '').trim().toLowerCase()
+      await crashlytics.trackCriticalProcess(
+        'admin_change_user_company',
+        async () => {
+          const { doc: docRef, updateDoc, collection: colRef, addDoc } = await import('firebase/firestore');
+          const matchedBrand = brands.find(
+            (b) => (b.brandName || '').trim().toLowerCase() === (newCompany || '').trim().toLowerCase()
+          );
+
+          await updateDoc(docRef(db, 'users', targetUser.id), {
+            company: newCompany,
+            brandId: matchedBrand ? matchedBrand.brandId : '',
+          });
+
+          // Log the change
+          await addDoc(colRef(db, 'logs'), {
+            changerUid: user.uid,
+            changerName: user.fullName || user.name || 'Admin/Manager',
+            targetUserUid: targetUser.id,
+            targetUserName: targetUser.name || targetUser.fullName || '',
+            oldCompany,
+            newCompany,
+            timestamp: new Date().toISOString(),
+            action: 'change_user_brand',
+          });
+        },
+        { targetUserUid: targetUser.id, oldCompany, newCompany }
       );
 
-      await updateDoc(docRef(db, 'users', targetUser.id), {
-        company: newCompany,
-        brandId: matchedBrand ? matchedBrand.brandId : '',
-      });
-
-      // Log the change
-      await addDoc(colRef(db, 'logs'), {
-        changerUid: user.uid,
-        changerName: user.fullName || user.name || 'Admin/Manager',
-        targetUserUid: targetUser.id,
-        targetUserName: targetUser.name || targetUser.fullName || '',
-        oldCompany,
-        newCompany,
-        timestamp: new Date().toISOString(),
-        action: 'change_user_brand'
-      });
-
-      toast.success(t('userCompanyUpdated', { name: targetUser.name, company: newCompany }));
+      toast.success(t('userCompanyUpdated', { name: targetUser.name, company: newCompany || 'None' }));
+      return true;
     } catch (error) {
       console.error("Error updating user company:", error);
       toast.error("Failed to update user company.");
+      return false;
     }
   };
 
@@ -218,7 +287,18 @@ function Admin({ user }) {
   return (
     <div className="mobile-container page-enter">
       <div className="scroll-view">
-        <h1 style={{ fontSize: 'var(--font-2xl)' }}>{t('users')}</h1>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+          <h1 style={{ margin: 0, fontSize: 'var(--font-2xl)' }}>{t('users')}</h1>
+          <button
+            type="button"
+            onClick={() => setShowHealthModal(true)}
+            className="btn btn-secondary btn-sm"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <span>🩺</span>
+            <span>{t('criticalProcessCheckBtn', 'Critical Process Check')}</span>
+          </button>
+        </div>
         <SearchInput searchTerm={searchTerm} setSearchTerm={handleSearchChange} placeholder={t('searchUsersPlaceholder')} />
 
         {loading && <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>{t('loading')}</p>}
@@ -229,10 +309,10 @@ function Admin({ user }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {displayedUsers.map(u => (
-            <MemoizedUserRow 
-              key={u.id} 
-              user={u} 
-              onRoleChange={handleRoleChange} 
+            <MemoizedUserRow
+              key={u.id}
+              user={u}
+              onRoleChange={handleRoleChange}
               brands={brands}
               onCompanyChange={handleCompanyChange}
             />
@@ -250,6 +330,12 @@ function Admin({ user }) {
           />
         )}
       </div>
+
+      <SystemHealthModal
+        isOpen={showHealthModal}
+        onClose={() => setShowHealthModal(false)}
+        user={user}
+      />
     </div>
   );
 }

@@ -224,8 +224,10 @@ function BrandDetailModal({
             <button
               onClick={async () => {
                 const next = !brand.isTreasureHolder;
-                await onToggleTreasure(brand.combinedId, brand.isTreasureHolder);
-                onBrandChange((prev) => ({ ...prev, isTreasureHolder: next }));
+                const updated = await onToggleTreasure(brand.combinedId, brand.isTreasureHolder);
+                if (updated) {
+                  onBrandChange((prev) => ({ ...prev, isTreasureHolder: next }));
+                }
               }}
               className={`btn btn-sm ${brand.isTreasureHolder ? 'btn-warning' : 'btn-ghost'}`}
               style={{ flex: 1 }}

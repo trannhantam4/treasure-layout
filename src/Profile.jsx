@@ -8,6 +8,8 @@ import { clearUserSessionStorage } from './storage';
 import { canManage } from './utils/auth';
 import SearchableCompanyInput from './components/SearchableCompanyInput';
 import { toast } from './utils/toast';
+import { confirmDialog } from './utils/confirm';
+import { crashlytics } from './utils/analytics';
 import { useTranslation } from 'react-i18next';
 
 const ADMIN_CONTACT_PHONE = '0338842685';
@@ -51,9 +53,24 @@ function Profile({ user, setUser }) {
   }
 
   const handleLogout = async () => {
+    const ok = await confirmDialog({
+      title: t('logoutConfirmTitle', 'LOG OUT'),
+      message: t('logoutConfirmMsg', 'Are you sure you want to log out of your account?'),
+      confirmText: t('logOut', 'Log Out'),
+      confirmVariant: 'danger',
+      icon: '🚪',
+    });
+    if (!ok) return;
+
     try {
-      await clearUserSessionStorage();
-      await signOut(auth);
+      await crashlytics.trackCriticalProcess(
+        'user_logout',
+        async () => {
+          await clearUserSessionStorage();
+          await signOut(auth);
+        },
+        { uid: user?.uid }
+      );
       setUser(null);
     } catch (error) {
       console.error('Error logging out:', error);
@@ -91,23 +108,29 @@ function Profile({ user, setUser }) {
     setSaving(true);
     setSaveMsg('');
     try {
-      const updates = {
-        fullName: form.fullName,
-        position: form.position,
-        address:  form.address,
-        phone:    form.phone,
-      };
+      await crashlytics.trackCriticalProcess(
+        'profile_save',
+        async () => {
+          const updates = {
+            fullName: form.fullName,
+            position: form.position,
+            address:  form.address,
+            phone:    form.phone,
+          };
 
-      // Only Admin can set or change a user's company / brand QR code linkage
-      if (isAdmin) {
-        const matching = brands.find(
-          (b) => (b.brandName || '').trim().toLowerCase() === (form.company || '').trim().toLowerCase()
-        );
-        updates.company = form.company;
-        updates.brandId = matching ? matching.brandId : '';
-      }
+          // Only Admin can set or change a user's company / brand QR code linkage
+          if (isAdmin) {
+            const matching = brands.find(
+              (b) => (b.brandName || '').trim().toLowerCase() === (form.company || '').trim().toLowerCase()
+            );
+            updates.company = form.company;
+            updates.brandId = matching ? matching.brandId : '';
+          }
 
-      await updateDoc(doc(db, 'users', user.uid), updates);
+          await updateDoc(doc(db, 'users', user.uid), updates);
+        },
+        { uid: user.uid, isAdmin }
+      );
       setSaveMsg(t('profileUpdated'));
       setEditing(false);
     } catch {
@@ -274,4 +297,4 @@ const InfoRow = memo(({ label, value }) => {
   );
 });
 
-export default Profile;
+export default Profile;

@@ -5,6 +5,7 @@ import {
 import { db } from './firebase';
 import { assignmentKey, stampKey, relativeKey } from './utils/keys';
 import { cacheStampTicket, getCachedStampTicket } from './storage';
+import { crashlytics } from './utils/analytics';
 
 
 /**
@@ -501,94 +502,107 @@ export const getOrCreateStampTicket = async (eventId, userId, eventName, treasur
  * - Also records the booth visit in the 'relative' collection ("{eventId}-{brandId}-{userId}").
  */
 export const stampSlot = async (eventId, userId, combinedId, userProfile = null) => {
-  // Extract eventId from combinedId to verify if it belongs to this event
-  const dashIndex = combinedId.indexOf('-');
-  if (dashIndex === -1) {
-    throw new Error('Invalid QR code format.');
-  }
-  const qrEventId = combinedId.substring(0, dashIndex);
-  if (qrEventId !== eventId) {
-    throw new Error('This QR code belongs to a different event.');
-  }
+  return crashlytics.trackCriticalProcess(
+    'stamp_slot',
+    async () => {
+      if (!eventId || !userId || !combinedId) {
+        throw new Error('Missing event, user, or QR code identifier.');
+      }
 
-  const stampId = stampKey(eventId, userId);
-  const stampRef = doc(db, 'stamps', stampId);
-
-  // Load ticket from local IndexedDB first; fall back to Firestore only if missing locally
-  let ticket = await getCachedStampTicket(stampId);
-  if (!ticket) {
-    const snap = await getDoc(stampRef);
-    if (snap.exists()) {
-      ticket = snap.data();
-    }
-  }
-
-  if (!ticket || !Array.isArray(ticket.slots)) {
-    throw new Error('Stamp ticket not found. Please open your stamp card first.');
-  }
-
-  const slotIndex = ticket.slots.findIndex((s) => s.combinedId === combinedId);
-
-  if (slotIndex === -1) {
-    // Check if the brand is actually assigned to this event but not a treasure hunt participant
-    const assignSnap = await getDoc(doc(db, 'assignments', combinedId));
-    if (assignSnap.exists()) {
-      if (assignSnap.data().eventId !== eventId) {
+      // Extract eventId from combinedId to verify if it belongs to this event
+      const dashIndex = combinedId.indexOf('-');
+      if (dashIndex === -1) {
+        throw new Error('Invalid QR code format.');
+      }
+      const qrEventId = combinedId.substring(0, dashIndex);
+      if (qrEventId !== eventId) {
         throw new Error('This QR code belongs to a different event.');
       }
-      if (!assignSnap.data().isTreasureHolder) {
-        throw new Error('This brand is not participating in the treasure hunt.');
+
+      const stampId = stampKey(eventId, userId);
+      const stampRef = doc(db, 'stamps', stampId);
+
+      // Load ticket from local IndexedDB first; fall back to Firestore only if missing locally
+      let ticket = await getCachedStampTicket(stampId);
+      if (!ticket) {
+        const snap = await getDoc(stampRef);
+        if (snap.exists()) {
+          ticket = snap.data();
+        }
       }
-    }
-    throw new Error('This brand is not a participant at this event.');
-  }
 
-  if (ticket.slots[slotIndex].stamped) {
-    throw new Error('Stamp already collected for "' + ticket.slots[slotIndex].brandName + '".');
-  }
+      if (!ticket || !Array.isArray(ticket.slots)) {
+        throw new Error('Stamp ticket not found. Please open your stamp card first.');
+      }
 
-  const stampedAt = new Date().toISOString();
-  const targetSlot = ticket.slots[slotIndex];
-  const updatedSlots = ticket.slots.map((s, i) =>
-    i === slotIndex ? { ...s, stamped: true, stampedAt } : s
+      const slotIndex = ticket.slots.findIndex((s) => s.combinedId === combinedId);
+
+      if (slotIndex === -1) {
+        // Check if the brand is actually assigned to this event but not a treasure hunt participant
+        const assignSnap = await getDoc(doc(db, 'assignments', combinedId));
+        if (assignSnap.exists()) {
+          if (assignSnap.data().eventId !== eventId) {
+            throw new Error('This QR code belongs to a different event.');
+          }
+          if (!assignSnap.data().isTreasureHolder) {
+            throw new Error('This brand is not participating in the treasure hunt.');
+          }
+        }
+        throw new Error('This brand is not a participant at this event.');
+      }
+
+      if (ticket.slots[slotIndex].stamped) {
+        throw new Error('Stamp already collected for "' + ticket.slots[slotIndex].brandName + '".');
+      }
+
+      const stampedAt = new Date().toISOString();
+      const targetSlot = ticket.slots[slotIndex];
+      const updatedSlots = ticket.slots.map((s, i) =>
+        i === slotIndex ? { ...s, stamped: true, stampedAt } : s
+      );
+
+      const allDone = updatedSlots.length > 0 && updatedSlots.every((s) => s.stamped);
+
+      const updatedTicket = {
+        ...ticket,
+        slots: updatedSlots,
+        ...(allDone
+          ? { completedAt: stampedAt, syncedToFirestore: true }
+          : { syncedToFirestore: false }),
+      };
+
+      // Always persist immediately to local device storage
+      const savedLocally = await cacheStampTicket(stampId, updatedTicket);
+      if (!savedLocally) {
+        console.warn('[CriticalCheck] Device storage write returned false for stamp ticket:', stampId);
+      }
+
+      // ONLY push to Firestore '/stamps' collection when all slots are completed!
+      if (allDone) {
+        await setDoc(stampRef, updatedTicket, { merge: true });
+      }
+
+      // Write visit record to 'relative' collection with ID "{eventId}-{brandId}-{userId}"
+      const brandId = targetSlot.brandId || combinedId.substring(dashIndex + 1);
+      try {
+        await recordBrandVisit({
+          eventId,
+          eventName: ticket.eventName || '',
+          brandId,
+          brandName: targetSlot.brandName || '',
+          logoUrl: targetSlot.logoUrl || '',
+          userId,
+          visitedAt: stampedAt,
+          userProfile,
+        });
+      } catch (err) {
+        console.warn('Error saving brand visit to relative collection:', err);
+      }
+
+      return updatedTicket;
+    },
+    { event_id: eventId, combined_id: combinedId }
   );
-
-  const allDone = updatedSlots.length > 0 && updatedSlots.every((s) => s.stamped);
-
-  const updatedTicket = {
-    ...ticket,
-    slots: updatedSlots,
-    ...(allDone
-      ? { completedAt: stampedAt, syncedToFirestore: true }
-      : { syncedToFirestore: false }),
-  };
-
-  // Always persist immediately to local device storage
-  await cacheStampTicket(stampId, updatedTicket);
-
-  // ONLY push to Firestore '/stamps' collection when all slots are completed!
-  if (allDone) {
-    await setDoc(stampRef, updatedTicket, { merge: true });
-  }
-
-  // Write visit record to 'relative' collection with ID "{eventId}-{brandId}-{userId}"
-  const brandId = targetSlot.brandId || combinedId.substring(dashIndex + 1);
-  try {
-    await recordBrandVisit({
-      eventId,
-      eventName: ticket.eventName || '',
-      brandId,
-      brandName: targetSlot.brandName || '',
-      logoUrl: targetSlot.logoUrl || '',
-      userId,
-      visitedAt: stampedAt,
-      userProfile,
-    });
-  } catch (err) {
-    console.warn('Error saving brand visit to relative collection:', err);
-  }
-
-  return updatedTicket;
 };
 
 /**
@@ -687,35 +701,45 @@ export const syncExistingStampsToRelative = async () => {
  * Saves claimed: true, claimedAt, and claimedBy to prevent duplicate prize redemption.
  */
 export const claimPrizeTicket = async (eventId, userId, staffName = 'Staff Organizer') => {
-  const stampId = stampKey(eventId, userId);
-  const stampRef = doc(db, 'stamps', stampId);
-  const snap = await getDoc(stampRef);
+  return crashlytics.trackCriticalProcess(
+    'claim_prize_ticket',
+    async () => {
+      if (!eventId || !userId) {
+        throw new Error('Missing eventId or userId for prize claim.');
+      }
 
-  let ticket = snap.exists() ? snap.data() : await getCachedStampTicket(stampId);
-  if (!ticket) {
-    throw new Error('Stamp ticket not found.');
-  }
+      const stampId = stampKey(eventId, userId);
+      const stampRef = doc(db, 'stamps', stampId);
+      const snap = await getDoc(stampRef);
 
-  const allDone = ticket.slots && ticket.slots.length > 0 && ticket.slots.every((s) => s.stamped);
-  if (!allDone) {
-    throw new Error('Cannot claim prize: not all stamps have been collected yet.');
-  }
+      let ticket = snap.exists() ? snap.data() : await getCachedStampTicket(stampId);
+      if (!ticket) {
+        throw new Error('Stamp ticket not found.');
+      }
 
-  if (ticket.claimed) {
-    throw new Error('This prize was already claimed on ' + new Date(ticket.claimedAt).toLocaleString());
-  }
+      const allDone = ticket.slots && ticket.slots.length > 0 && ticket.slots.every((s) => s.stamped);
+      if (!allDone) {
+        throw new Error('Cannot claim prize: not all stamps have been collected yet.');
+      }
 
-  const claimData = {
-    claimed: true,
-    claimedAt: new Date().toISOString(),
-    claimedBy: staffName,
-    syncedToFirestore: true,
-  };
+      if (ticket.claimed) {
+        throw new Error('This prize was already claimed on ' + new Date(ticket.claimedAt).toLocaleString());
+      }
 
-  const claimedTicket = { ...ticket, ...claimData };
-  await setDoc(stampRef, claimedTicket, { merge: true });
-  await cacheStampTicket(stampId, claimedTicket);
-  return claimedTicket;
+      const claimData = {
+        claimed: true,
+        claimedAt: new Date().toISOString(),
+        claimedBy: staffName,
+        syncedToFirestore: true,
+      };
+
+      const claimedTicket = { ...ticket, ...claimData };
+      await setDoc(stampRef, claimedTicket, { merge: true });
+      await cacheStampTicket(stampId, claimedTicket);
+      return claimedTicket;
+    },
+    { event_id: eventId, staff: staffName }
+  );
 };
 
 

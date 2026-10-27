@@ -18,7 +18,11 @@ import { logEvent, setUserId, setUserProperties } from 'firebase/analytics';
 
 // In-memory buffer of recent breadcrumbs to attach to error reports
 const breadcrumbs = [];
-const MAX_BREADCRUMBS = 20;
+const MAX_BREADCRUMBS = 30;
+
+// In-memory log of recent critical process executions (for Admin Diagnostics)
+const criticalProcessHistory = [];
+const MAX_PROCESS_HISTORY = 25;
 
 export const crashlytics = {
   /**
@@ -34,6 +38,75 @@ export const crashlytics = {
     if (breadcrumbs.length > MAX_BREADCRUMBS) {
       breadcrumbs.shift();
     }
+  },
+
+  /**
+   * Wrap and monitor a critical asynchronous process with timing, breadcrumb logging,
+   * analytics event tracking, and automatic error reporting.
+   *
+   * @param {string} processName - Identifier for the critical process (e.g. 'stamp_slot', 'claim_prize')
+   * @param {Function} operationFn - Async function to execute
+   * @param {object} metadata - Context metadata for diagnostics
+   */
+  async trackCriticalProcess(processName, operationFn, metadata = {}) {
+    const startTime = performance.now();
+    this.log(`[START] ${processName}`, metadata);
+
+    try {
+      const result = await operationFn();
+      const durationMs = Math.round(performance.now() - startTime);
+
+      const record = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        processName,
+        status: 'success',
+        durationMs,
+        timestamp: new Date().toISOString(),
+        metadata,
+      };
+      criticalProcessHistory.unshift(record);
+      if (criticalProcessHistory.length > MAX_PROCESS_HISTORY) {
+        criticalProcessHistory.pop();
+      }
+
+      this.log(`[SUCCESS] ${processName} (${durationMs}ms)`, metadata);
+      this.logEvent('critical_process_success', {
+        process_name: processName,
+        duration_ms: durationMs,
+        ...metadata,
+      });
+
+      return result;
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startTime);
+      const record = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        processName,
+        status: 'error',
+        durationMs,
+        errorMessage: error?.message || String(error),
+        timestamp: new Date().toISOString(),
+        metadata,
+      };
+      criticalProcessHistory.unshift(record);
+      if (criticalProcessHistory.length > MAX_PROCESS_HISTORY) {
+        criticalProcessHistory.pop();
+      }
+
+      await this.recordError(error, false, {
+        critical_process: processName,
+        duration_ms: durationMs,
+        ...metadata,
+      });
+      throw error;
+    }
+  },
+
+  /**
+   * Get recent critical process executions for Admin System Health check.
+   */
+  getProcessHistory() {
+    return [...criticalProcessHistory];
   },
 
   /**

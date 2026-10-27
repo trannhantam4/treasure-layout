@@ -9,6 +9,8 @@ import EmptyState from './components/EmptyState';
 import Pagination from './components/Pagination';
 import { exportBrandVisitorsExcel } from './utils/brandExcel';
 import { toast } from './utils/toast';
+import { confirmDialog } from './utils/confirm';
+import { crashlytics } from './utils/analytics';
 import { useTranslation } from 'react-i18next';
 
 const VISITORS_PER_PAGE = 10;
@@ -147,9 +149,25 @@ function BrandVisitors({ user }) {
   };
 
   const handleSyncStamps = async () => {
+    const ok = await confirmDialog({
+      title: t('syncStampsConfirmTitle', 'SYNC STAMP RECORDS'),
+      message: t(
+        'syncStampsConfirmMsg',
+        'Scan all completed stamp tickets in Firestore and backfill missing visitor records into the /relative collection?'
+      ),
+      confirmText: t('syncStampsBtn', 'Sync Stamp Records'),
+      confirmVariant: 'primary',
+      icon: '🔄',
+    });
+    if (!ok) return;
+
     setSyncing(true);
     try {
-      const count = await syncExistingStampsToRelative();
+      const count = await crashlytics.trackCriticalProcess(
+        'sync_existing_stamps_to_relative',
+        () => syncExistingStampsToRelative(),
+        { triggeredBy: user?.uid }
+      );
       toast.success(
         t('syncVisitorsSuccess', {
           count,

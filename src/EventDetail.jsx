@@ -30,6 +30,7 @@ import { handleFirebaseError } from './utils/firebaseErrors';
 import { stampKey } from './utils/keys';
 import { toast } from './utils/toast';
 import { confirmDialog } from './utils/confirm';
+import { crashlytics } from './utils/analytics';
 import FullscreenLayoutViewer from './components/eventDetail/FullscreenLayoutViewer';
 import BrandDetailModal from './components/eventDetail/BrandDetailModal';
 import RegistrationModal from './components/eventDetail/RegistrationModal';
@@ -222,13 +223,28 @@ function EventDetail({ user }) {
     }
 
     if (isRegistered) {
-      // Un-register directly
+      const ok = await confirmDialog({
+        title: t('unregisterConfirmTitle', 'UNREGISTER FROM EVENT'),
+        message: t('unregisterConfirmMsg', 'Are you sure you want to unregister from this event?'),
+        confirmText: t('unregisterFromEvent', 'Unregister'),
+        confirmVariant: 'warning',
+        icon: '🎫',
+      });
+      if (!ok) return;
+
+      // Un-register after confirmation
       const eventRef = doc(db, 'event', id);
       try {
-        await updateDoc(eventRef, {
-          registeredUsers: arrayRemove(user.uid),
-          registeredCount: increment(-1)
-        });
+        await crashlytics.trackCriticalProcess(
+          'event_unregister',
+          async () => {
+            await updateDoc(eventRef, {
+              registeredUsers: arrayRemove(user.uid),
+              registeredCount: increment(-1)
+            });
+          },
+          { eventId: id, userId: user.uid }
+        );
         setEvent(prev => {
           const currentCount = prev.registeredCount ?? (prev.registeredUsers?.length || 0);
           return {
@@ -564,14 +580,33 @@ function EventDetail({ user }) {
 
   const handleToggleTreasureHolder = async (combinedId, current) => {
     const next = !current;
+    const ok = await confirmDialog({
+      title: next
+        ? t('enableTreasureConfirmTitle', 'ENABLE TREASURE HOLDER QR')
+        : t('removeTreasureConfirmTitle', 'REMOVE TREASURE HOLDER QR'),
+      message: next
+        ? t('enableTreasureConfirmMsg', 'Enable Treasure Hunt QR code for this brand booth?')
+        : t('removeTreasureConfirmMsg', 'Remove Treasure Hunt QR code from this brand booth?'),
+      confirmText: t('confirm', 'Confirm'),
+      confirmVariant: next ? 'primary' : 'warning',
+      icon: '⭐',
+    });
+    if (!ok) return false;
+
     try {
-      await setTreasureHolder(combinedId, next);
+      await crashlytics.trackCriticalProcess(
+        'toggle_treasure_holder',
+        () => setTreasureHolder(combinedId, next),
+        { combinedId, isTreasureHolder: next }
+      );
       setAssignedBrands((prev) =>
         prev.map((a) => a.combinedId === combinedId ? { ...a, isTreasureHolder: next } : a)
       );
       toast.success(next ? 'Marked as Treasure Holder!' : 'Removed Treasure Holder status.');
+      return true;
     } catch (err) {
       toast.error('Failed to update Treasure Holder status: ' + err.message);
+      return false;
     }
   };
 
@@ -676,6 +711,7 @@ function EventDetail({ user }) {
             user={user}
             currentUser={user}
             brands={treasureBrands}
+            onSelectBrand={setSelectedBrandDetail}
           />
         )}
 

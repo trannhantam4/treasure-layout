@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
  * Shows one slot per assigned brand. Users scan QR codes at booths to collect stamps.
  * Ticket is saved to device storage for offline access.
  */
-function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
+function StampTicket({ eventId, eventName, user, brands, currentUser = user, onSelectBrand }) {
   const { t } = useTranslation();
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +65,24 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
     cacheStampTicket(ticketId, updatedTicket);
   }, [eventId, user]);
 
+  const handleSlotClick = useCallback((slot) => {
+    if (!onSelectBrand) return;
+    const matchedBrand =
+      brands.find(
+        (b) =>
+          b.combinedId === slot.combinedId ||
+          (b.brandId && slot.brandId && String(b.brandId) === String(slot.brandId))
+      ) || {
+        ...slot,
+        eventId,
+        rank: slot.rank || 'standard',
+        position: slot.position || '',
+        fieldOfWork: slot.fieldOfWork || '',
+        isTreasureHolder: true,
+      };
+    onSelectBrand(matchedBrand);
+  }, [onSelectBrand, brands, eventId]);
+
   if (brands.length === 0) return null;
 
   const stamped = ticket ? ticket.slots.filter((s) => s.stamped).length : 0;
@@ -104,7 +122,11 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
       {ticket && (
         <div className="stamp-ticket__grid">
           {ticket.slots.map((slot) => (
-            <StampSlot key={slot.combinedId} slot={slot} />
+            <StampSlot
+              key={slot.combinedId}
+              slot={slot}
+              onSelect={onSelectBrand ? () => handleSlotClick(slot) : undefined}
+            />
           ))}
         </div>
       )}
@@ -207,10 +229,26 @@ function StampTicket({ eventId, eventName, user, brands, currentUser = user }) {
 }
 
 /* ─── Individual Stamp Slot ─── */
-const StampSlot = memo(({ slot }) => {
+const StampSlot = memo(({ slot, onSelect }) => {
   const done = slot.stamped;
+  const handleKeyDown = (e) => {
+    if (onSelect && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      onSelect();
+    }
+  };
+
   return (
-    <div className="stamp-slot" data-stamped={done}>
+    <div
+      className="stamp-slot"
+      data-stamped={done}
+      data-clickable={Boolean(onSelect)}
+      onClick={onSelect}
+      onKeyDown={handleKeyDown}
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      title={slot.brandName ? `${slot.brandName} — Click to view booth info` : 'View brand info'}
+    >
       <div className="stamp-slot__logo" data-stamped={done}>
         {slot.logoUrl ? (
           <img
@@ -227,7 +265,7 @@ const StampSlot = memo(({ slot }) => {
         {done && <div className="stamp-slot__check">✓</div>}
       </div>
       <div className="stamp-slot__name" data-stamped={done}>
-        {done ? slot.brandName : '???'}
+        {slot.brandName || '???'}
       </div>
       {done && slot.stampedAt && (
         <div className="stamp-slot__time">
